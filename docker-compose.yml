@@ -1,12 +1,13 @@
 services:
   db:
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     environment:
       POSTGRES_USER: toupu
       POSTGRES_PASSWORD: toupu_dev
       POSTGRES_DB: toupu
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      # PG18+ 镜像要求挂载 /var/lib/postgresql，数据存于版本化子目录，便于 pg_upgrade
+      - pgdata:/var/lib/postgresql
     ports:
       - "5433:5432" # 宿主机 5432 常被本地 Postgres 占用，容器内部仍是 5432
     healthcheck:
