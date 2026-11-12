@@ -6,6 +6,14 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 
+class BusinessError(Exception):
+    """业务规则拒绝。默认 409。"""
+
+    def __init__(self, message: str, status_code: int = 409):
+        super().__init__(message)
+        self.status_code = status_code
+
+
 def error_body(code: str, message: str, detail: dict | None = None) -> dict:
     error: dict = {"code": code, "message": message}
     if detail:
@@ -14,6 +22,13 @@ def error_body(code: str, message: str, detail: dict | None = None) -> dict:
 
 
 def register_error_handlers(app: FastAPI) -> None:
+    @app.exception_handler(BusinessError)
+    async def business_handler(request: Request, exc: BusinessError) -> JSONResponse:
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=error_body(code="BUSINESS_RULE", message=str(exc)),
+        )
+
     @app.exception_handler(StarletteHTTPException)
     async def http_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
         code = "NOT_FOUND" if exc.status_code == status.HTTP_404_NOT_FOUND else "HTTP_ERROR"
