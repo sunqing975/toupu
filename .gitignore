@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+
+# Node
+node_modules/
+dist/
+
+# 环境与密钥
+.env
+.env.local
+
+# 系统文件
+.DS_Store
+*.sqlite
+*.db
