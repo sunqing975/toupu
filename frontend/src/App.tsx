@@ -13,6 +13,7 @@ import { APP_VERSION } from "./version"
 import { Dashboard } from "./pages/Dashboard"
 import { Accounts } from "./pages/Accounts"
 import { Instruments } from "./pages/Instruments"
+import { Transactions } from "./pages/Transactions"
 import { Placeholder } from "./pages/Placeholder"
 
 const NAV = [
@@ -65,7 +66,7 @@ export default function App() {
       <Route element={<Shell />}>
         <Route path="/" element={<Dashboard />} />
         <Route path="/positions" element={<Placeholder milestone="M2" description="按账户分组的持仓数量与成本" />} />
-        <Route path="/transactions" element={<Placeholder milestone="M1" description="交易草稿、确认、入账与冲正" />} />
+        <Route path="/transactions" element={<Transactions />} />
         <Route path="/ledger" element={<Placeholder milestone="M1" description="复式记账分录流水，只读" />} />
         <Route path="/imports" element={<Placeholder milestone="M4" description="Excel/CSV 导入与期初资产" />} />
         <Route path="/accounts" element={<Accounts />} />

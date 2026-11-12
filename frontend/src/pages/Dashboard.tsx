@@ -3,19 +3,25 @@ import { useNavigate } from "react-router-dom"
 import { Wallet, ArrowLeftRight, PieChart } from "lucide-react"
 import { accountsApi } from "../api/accounts"
 import { instrumentsApi } from "../api/instruments"
+import { TXN_TYPE_LABELS, fmtAmount, transactionsApi, type Txn } from "../api/transactions"
 import type { Instrument, InvestmentAccount } from "../api/types"
 import { EmptyState } from "../components/EmptyState"
 import { Skeleton } from "../components/Skeleton"
+import { StatusBadge } from "../components/StatusBadge"
 
 export function Dashboard() {
   const navigate = useNavigate()
   const [accounts, setAccounts] = useState<InvestmentAccount[] | null>(null)
   const [instruments, setInstruments] = useState<Instrument[] | null>(null)
+  const [recent, setRecent] = useState<Txn[] | null>(null)
 
   useEffect(() => {
     accountsApi.list().then(setAccounts).catch(() => setAccounts([]))
     instrumentsApi.list().then(setInstruments).catch(() => setInstruments([]))
+    transactionsApi.list().then(setRecent).catch(() => setRecent([]))
   }, [])
+
+  const todoCount = (recent ?? []).filter((t) => t.status === "DRAFT" || t.status === "CONFIRMED").length
 
   const noAccounts = accounts !== null && accounts.length === 0
 
@@ -67,12 +73,38 @@ export function Dashboard() {
 
           <div className="grid-2" style={{ marginTop: "var(--space-5)" }}>
             <div className="card">
-              <div className="card__title">近期交易</div>
-              <EmptyState
-                icon={<ArrowLeftRight size={32} aria-hidden />}
-                title="交易功能即将上线"
-                description="交易草稿、确认与入账随 M1 里程碑推进。"
-              />
+              <div className="card__title">
+                近期交易
+                {todoCount > 0 && (
+                  <span className="badge badge--yellow" style={{ marginLeft: 8 }}>
+                    待处理 {todoCount}
+                  </span>
+                )}
+              </div>
+              {recent === null ? (
+                <Skeleton />
+              ) : recent.length === 0 ? (
+                <EmptyState
+                  icon={<ArrowLeftRight size={32} aria-hidden />}
+                  title="还没有交易"
+                  description="从一笔入金开始记账。"
+                />
+              ) : (
+                <table className="table">
+                  <tbody>
+                    {recent.slice(0, 8).map((t) => (
+                      <tr key={t.id}>
+                        <td className="num">{t.business_date}</td>
+                        <td>{TXN_TYPE_LABELS[t.transaction_type] ?? t.transaction_type}</td>
+                        <td className="cell--num num">{fmtAmount(t.total_amount)}</td>
+                        <td>
+                          <StatusBadge status={t.status} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
             <div className="card">
               <div className="card__title">账户与品种</div>
