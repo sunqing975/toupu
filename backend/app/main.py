@@ -10,6 +10,7 @@ from alembic import command
 from app.accounts.router import router as accounts_router
 from app.core import errors
 from app.core.config import get_settings
+from app.funds.router import router as funds_router
 from app.instruments.router import router as instruments_router
 from app.positions.router import router as positions_router
 from app.transactions.router import router as transactions_router
@@ -38,6 +39,7 @@ def create_app() -> FastAPI:
     app.include_router(accounts_router)
     app.include_router(instruments_router)
     app.include_router(transactions_router)
+    app.include_router(funds_router)
     app.include_router(positions_router)
 
     @app.get("/health")

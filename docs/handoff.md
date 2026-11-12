@@ -5,7 +5,7 @@
 
 ## 1. 一句话状态
 
-**M0（骨架）、M1（基础账本）、交易页前端已完成并提交；M2（证券交易）后端已修复、测试全绿（M1 19 + M2 7 = 26 passed）、ruff/mypy 干净、curl 实测核对 §5 数值一致，并已提交；M2 前端闭环（证券录入 + 持仓页）也已提交（`b6cccd2`），M2 整段完成**。
+**M0（骨架）、M1（基础账本）、M2（证券交易，前后端整段完成）已提交；M3（场外基金：申购/赎回两段式确认 + 分红/红利再投资）后端已完成、测试全绿（M1 19 + M2 7 + M3 17 = 43 passed）、ruff/mypy 干净、E2E 实测通过，本次提交**。M3 之后按 §9 顺序继续 M4 → M5 → M6 + 界面审查。
 
 ## 2. 项目定位（摘要，详见 agent.md / README）
 
@@ -24,8 +24,8 @@
 
 ```
 backend/          FastAPI + SQLAlchemy 2.x + Alembic + pytest
-  app/{accounts,instruments,transactions,executions,positions,ledger,audit,core,db}
-  alembic/versions/   0001 基线(13表) … 0004 instrument_id … 0005 journal_lines.line_no
+  app/{accounts,instruments,transactions,executions,positions,funds,ledger,audit,core,db}
+  alembic/versions/   0001 基线(13表) … 0004 instrument_id … 0005 line_no … 0006 基金字段/lot_origin
   tests/
 frontend/         React 19 + TS + Vite（视觉约束见根目录 frontend-design.md）
 docs/             产品/领域/账务/数据库/实施计划/页面规格
@@ -65,12 +65,12 @@ uv run mypy app
 | `a2b0831` | M1 开工：Alembic 基线迁移（13 表）+ 启动自动迁移 + 账户/品种 API + 测试 |
 | `03071d8` | **M2 证券交易**：成交明细、移动加权平均成本、持仓查询、已实现损益、买入冲正、0005 分录行序 + 26 测试 |
 | `b6cccd2` | **M2 前端闭环**：交易页证券录入（证券买卖 + 成交明细 + 品种选择）+ 持仓页接 `/api/v1/positions` |
+| 本次提交 | **M3 场外基金**：申购/赎回两段式确认（净值/份额/费用守恒）、现金分红、红利再投资、FUND/DIVIDEND_REINVEST 批次、0006 迁移、17 测试 |
 | `272bab8` | 前端 v0.1：设计令牌（亮/暗）、应用壳导航、总览/账户/品种页（真实 API）、占位页、Toast/Dialog/徽标/骨架屏 |
 | `480e547`、`12d73bc` | UI 文案去行话（「标的」→「投资品种」）；账户类型收紧为券商/基金平台（迁移 0002）；开发模式改本地进程 |
 | `41f3e22` | 产品三件套（product/user-flow/page-spec）+ frontend-design.md |
 | `ce8c7a8` | **M1 核心账本**：交易状态机 API + PostingService（借贷平衡/幂等/冲正/审计）+ 19 测试 |
 | `230a9d7` | **交易页前端**：新建/确认/过账/冲正/取消 + 分录详情 + 总览近期交易与待办 |
-| 本次提交 | **M2 证券交易**：成交明细、移动加权平均成本、持仓查询、已实现损益、买入冲正、0005 分录行序 + 26 测试 |
 
 已实现的能力清单：
 
@@ -82,9 +82,9 @@ uv run mypy app
 - 证券：股票/ETF 买入卖出（可多笔成交）、费用、持仓批次与移动加权平均成本、部分卖出、已实现盈亏、`GET /api/v1/positions`。
 - 前端：账户、品种、交易三个功能页 + 总览，Swiss 极简，信任蓝 `#1E40AF`，红涨绿跌，tabular-nums。
 
-## 5. M2（证券交易）后端 —— 已全绿，待提交
+## 5. M2（证券交易）后端 —— 已全绿，已提交（03071d8）
 
-`git status`（提交前）：
+`git status`（提交前留档）：
 
 ```
 M  backend/app/ledger/models.py
@@ -134,13 +134,37 @@ M  backend/app/transactions/router.py
 - 回填 `instrument_id` 到冲正交易，保证追溯。
 - 分录行加 `line_no`，冲正时按原行序镜像，接口返回顺序确定（前端/测试可稳定断言）。
 
+## 6.5 M3（场外基金）实现口径 —— 详见 docs/ledger-rules.md §15
+
+账务语义先落文档（agent.md §10）：`docs/ledger-rules.md` 追加 §15，再写代码。
+
+**生命周期**：申购/赎回/红利再投资两段式 `DRAFT(PENDING) → CONFIRMED(confirmation_status=CONFIRMED，写 fund_confirmations) → POSTED`；确认数据到达前 `post_transaction` 强制拦截「基金交易未完成确认，不能过账」。通用 `/confirm` 护栏挡住基金申请（必须走基金确认接口录净值/份额）。现金分红 `CASH_DIVIDEND` 创建即 `CONFIRMED`，无需确认；`FUND_CONVERT` 第一版不开放；失败可 `POST /orders/{id}/fail` 置 `FAILED/CANCELLED`，无账务影响。
+
+**字段语义**：申购 `apply_amount` = 实际扣款总额（含申购费），确认时守恒 `apply_amount == confirmed_amount + fee_amount`；赎回 `apply_shares` = 申请份额、`apply_amount` 可空（确认前无实际金额，不猜测）；现金分红 `apply_amount` = 现金到账金额。
+
+**分录模板**（基金处理器在 `app/funds/handlers.py`，与证券处理器完全分离，复用 ledger 科目 + positions 成本底层）：
+
+| 类型 | 借方 | 贷方 | 持仓批次 |
+|---|---|---|---|
+| 申购 | 证券 = `apply_amount` | 现金 = 同额 | `lot_origin=FUND`，成本含申购费 |
+| 赎回 | 现金 = `confirmed_amount − fee_amount`（净到账） | 证券 = 移动加权平均出库成本，差额 `REALIZED_GAIN/LOSS` | 减仓，清仓尾差归零 |
+| 现金分红 | 现金 = `apply_amount` | `DIVIDEND_INCOME`「现金分红收入」 | 不增份额 |
+| 红利再投资 | 证券 = `confirmed_amount` | `DIVIDEND_INCOME`（不重复现金） | `lot_origin=DIVIDEND_REINVEST`，按确认净值增份额 |
+
+**API**：`POST/GET /api/v1/funds/orders`、`GET /api/v1/funds/orders/{id}`、`POST /api/v1/funds/orders/{id}/confirm|fail`；过账/冲正/取消复用 `/api/v1/transactions/{id}/post|reverse|cancel`。申购/红利再投资冲正删除未消耗批次；赎回冲正暂不开放；现金分红无批次可直接冲正。
+
+**迁移 0006**：`fund_order_details` 加 `apply_shares NUMERIC(20,6)`、`apply_amount` 放宽为可空；`position_lots.lot_origin` CHECK 扩为 `('TRADE','OPENING_BALANCE','CORPORATE_ACTION','FUND','DIVIDEND_REINVEST')`。
+
+**验收**：`tests/test_funds.py` 17 个测试（正常/守恒/护栏/过账前拦截/部分赎回亏损/两批次清仓尾差归零/现金分红/红利再投资/超赎/冲正/幂等/fail/校验/列表详情/六位精度），全量 43 passed；ruff/mypy 干净；`/tmp/m3_e2e.py` 真实 HTTP 全链路 30 断言通过。
+
 ## 7. 还没做
 
 | 事项 | 说明 |
 |---|---|
 | ~~持仓页前端~~ | 已完成（b6cccd2） |
 | ~~交易页支持证券录入~~ | 已完成（b6cccd2）：证券买卖 + 成交明细 + 品种选择 |
-| M3 场外基金 | 申购/赎回申请、确认净值与份额、费用、分红与红利再投资 |
+| ~~M3 场外基金（后端）~~ | 已完成（本次提交）：两段式申购/赎回 + 确认守恒 + 现金分红 + 红利再投资 + 17 测试 |
+| M3 场外基金（前端） | 基金申请/确认录入页、确认数据与分录展示（后端 API 已就绪） |
 | M4 导入 | CSV/Excel、字段映射、去重、预览确认、期初资产 |
 | M5 行情与收益 | Provider/Adapter、净值行情、快照、已实现/未实现盈亏、XIRR/TWR、回撤 |
 | M6 风险与 Agent | 风险规则、确定性提醒、Agent 只读查询与草稿提案 |
@@ -157,6 +181,6 @@ M  backend/app/transactions/router.py
 
 ## 9. 建议的接手顺序
 
-1. 交易页增加证券录入（股票/ETF 买卖 + 成交明细表单），做持仓页接 `/api/v1/positions`，前端闭环后 M2 才算可见可用。
-2. 按里程碑顺序推进 M3 → M4 → M5 → M6；或先插入界面审查阶段（`impeccable`）。
+1. ~~M2 前端闭环~~（已完成 b6cccd2）、~~M3 场外基金后端~~（已完成本次提交）。
+2. 下一步：M3 前端（基金申请/确认录入页）；随后按里程碑 M4 导入 → M5 行情/收益 → M6 风险/Agent；或先插入界面审查阶段（`impeccable`）。
 3. 每次改动后保持：`pytest` 全绿 → `ruff`/`mypy` 干净 → 实测 → 提交。

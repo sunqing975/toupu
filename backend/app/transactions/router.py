@@ -16,7 +16,7 @@ from app.db.session import get_db
 from app.executions.models import TradeExecution
 from app.instruments.models import Instrument
 from app.ledger.models import JournalEntry, JournalLine, LedgerAccount
-from app.ledger.service import post_transaction, reverse_transaction
+from app.ledger.service import FUND_CONFIRM_REQUIRED, post_transaction, reverse_transaction
 from app.transactions.models import InvestmentTransaction
 
 router = APIRouter(prefix="/api/v1/transactions", tags=["transactions"])
@@ -282,6 +282,10 @@ def confirm_transaction(
         raise HTTPException(status_code=404, detail="交易不存在")
     if txn.status != "DRAFT":
         raise BusinessError("只有草稿状态可以确认")
+    # 场外基金两段式申请必须走 /api/v1/funds/orders/{id}/confirm 写入确认数据，
+    # 不能用通用确认端点绕过确认状态（ledger-rules §15.1）
+    if txn.transaction_type in FUND_CONFIRM_REQUIRED:
+        raise BusinessError("基金申请请通过基金确认接口录入确认净值与份额")
     txn.status = "CONFIRMED"
     record_audit(db, "transaction.confirm", "investment_transaction", str(txn.id))
     db.commit()

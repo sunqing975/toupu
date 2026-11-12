@@ -70,38 +70,60 @@ def aggregate(lots: list[PositionLot]) -> tuple[Decimal, Decimal]:
     return qty, cost
 
 
+def open_position_lot(
+    db: Session,
+    txn: InvestmentTransaction,
+    quantity: Decimal,
+    total_cost: Decimal,
+    lot_origin: str,
+    open_date: date,
+) -> PositionLot:
+    """建立一个持仓批次：成本含费用（实际现金流出），单位成本 = 成本 / 数量。
+
+    证券买入、基金申购、红利再投资共用此底层记录；上层处理器保持分离（agent.md §3）。
+    """
+    assert txn.instrument_id is not None
+    lot = PositionLot(
+        investment_account_id=txn.account_id,
+        instrument_id=txn.instrument_id,
+        origin_transaction_id=txn.id,
+        lot_origin=lot_origin,
+        open_date=open_date,
+        quantity=quantity,
+        remaining_quantity=quantity,
+        unit_cost=total_cost / quantity,
+        total_cost=total_cost,
+    )
+    db.add(lot)
+    db.flush()
+    return lot
+
+
 def apply_buy(db: Session, txn: InvestmentTransaction, executions: list[TradeExecution]) -> None:
-    """买入：每笔成交形成一个批次，成本含费用（实际现金流出）。"""
+    """证券买入：每笔成交形成一个批次，成本含费用（实际现金流出）。"""
     for ex in executions:
-        db.add(
-            PositionLot(
-                investment_account_id=txn.account_id,
-                instrument_id=txn.instrument_id,  # type: ignore[arg-type]
-                origin_transaction_id=txn.id,
-                lot_origin="TRADE",
-                open_date=ex.execution_date,
-                quantity=ex.quantity,
-                remaining_quantity=ex.quantity,
-                unit_cost=(ex.net_amount / ex.quantity),
-                total_cost=ex.net_amount,
-            )
-        )
+        open_position_lot(db, txn, ex.quantity, ex.net_amount, "TRADE", ex.execution_date)
     db.flush()
 
 
-def apply_sell(
-    db: Session, txn: InvestmentTransaction, executions: list[TradeExecution]
-) -> Decimal:
-    """卖出：移动加权平均计算出库成本；清仓时尾差归零；批次按开仓顺序消耗并留处置记录。
+# (减仓数量, 处置日期)：证券按每笔成交、基金按确认份额一次传入
+Disposal = tuple[Decimal, date]
 
-    成本口径为移动加权平均（ledger-rules §11）：出库成本 = 当前单位成本 × 卖出数量，
-    单位成本 = 剩余总成本 / 剩余总数量。清仓（卖出数量 = 持有数量）时出库成本直接取
+
+def reduce_position(db: Session, txn: InvestmentTransaction, disposals: list[Disposal]) -> Decimal:
+    """移动加权平均减仓，返回出库成本。
+
+    成本口径为移动加权平均（ledger-rules §11）：出库成本 = 当前单位成本 × 减仓数量，
+    单位成本 = 剩余总成本 / 剩余总数量。清仓（减仓数量 = 持有数量）时出库成本直接取
     剩余总成本，尾差归零，不产生残留批次，剩余批次成本按新单位成本重算保持 Σ 精确。
+    证券卖出与场外基金赎回共用此成本口径；批次轨迹留 disposal 明细。
     """
     assert txn.instrument_id is not None
     lots = open_lots(db, txn.account_id, txn.instrument_id)
     total_qty, total_cost = aggregate(lots)
-    sell_qty = sum((ex.quantity for ex in executions), Decimal(0))
+    sell_qty = sum((q for q, _ in disposals), Decimal(0))
+    if sell_qty <= 0:
+        raise BusinessError("减仓数量必须大于 0")
     if sell_qty > total_qty:
         raise BusinessError(f"持仓不足：持有 {total_qty}，试图卖出 {sell_qty}")
 
@@ -118,8 +140,8 @@ def apply_sell(
     cost_out_total = (unit_cost * sell_qty).quantize(Q6)
 
     # FIFO 消耗批次并记录处置明细（用于批次轨迹与可追溯）
-    for ex in executions:
-        qty_left = ex.quantity
+    for qty, disposal_date in disposals:
+        qty_left = qty
         while qty_left > 0 and lots:
             lot = lots[0]
             take = min(qty_left, lot.remaining_quantity)
@@ -131,7 +153,7 @@ def apply_sell(
                     disposal_transaction_id=txn.id,
                     quantity=take,
                     cost_amount=(unit_cost * take).quantize(Q6),
-                    disposal_date=ex.execution_date,
+                    disposal_date=disposal_date,
                 )
             )
             if lot.remaining_quantity == 0:
@@ -152,3 +174,10 @@ def apply_sell(
         lots[-1].total_cost += residual
     db.flush()
     return cost_out_total
+
+
+def apply_sell(
+    db: Session, txn: InvestmentTransaction, executions: list[TradeExecution]
+) -> Decimal:
+    """证券卖出：移动加权平均计算出库成本（详见 reduce_position）。"""
+    return reduce_position(db, txn, [(ex.quantity, ex.execution_date) for ex in executions])

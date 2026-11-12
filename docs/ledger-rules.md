@@ -143,3 +143,44 @@
 - 舍入规则按业务/数据源规范配置。
 - 展示层格式化不回写数据库。
 - 每种舍入策略都需要测试覆盖。
+
+## 15. M3 场外基金实现口径（第一版）
+
+本节的字段语义与状态机是 §5–§7 的落地约定，代码不得自行改变。
+
+### 15.1 生命周期与状态
+
+- 申购 / 赎回 / 红利再投资是「两段式」业务：`DRAFT`（申请，`confirmation_status=PENDING`）→ 确认（`status=CONFIRMED`、`confirmation_status=CONFIRMED`，写 `fund_confirmations`）→ `POSTED`。
+- **确认数据到达前不得过账、不得增减最终份额**；`post_transaction` 对这三类交易强制校验 `confirmation_status=CONFIRMED`。
+- 申请失败可置 `confirmation_status=FAILED`、`status=CANCELLED`，不产生任何账务影响。
+- 现金分红（`CASH_DIVIDEND`）以平台到账为既成事实，创建时即 `status=CONFIRMED`、`confirmation_status=CONFIRMED`，无需确认阶段，不写 `fund_confirmations`。
+- 基金转换（`FUND_CONVERT`）第一版不开放。
+
+### 15.2 字段语义（数据映射）
+
+| 字段 | 申购 | 赎回 | 红利再投资 | 现金分红 |
+|---|---|---|---|---|
+| `fund_order_details.apply_amount` | **实际扣款总额（含申购费）** | 预估金额，可空 | 预估分红金额，可空 | 现金到账金额 |
+| `fund_order_details.apply_shares` | 空 | **申请赎回份额** | 预计份额，可空 | 空 |
+| `fund_order_details.platform` | 渠道（渠道分别核算） | 同左 | 同左 | 同左 |
+| `fund_confirmations.nav` | 确认净值 | 确认净值 | 确认净值 | 不适用 |
+| `fund_confirmations.confirmed_shares` | 确认份额 | 确认份额 | 确认份额 | 不适用 |
+| `fund_confirmations.confirmed_amount` | 净申购金额（= 扣款 − 申购费） | 赎回总额（= 份额 × 净值） | 分红总额（= 份额 × 净值） | 不适用 |
+| `fund_confirmations.fee_amount` | 实际申购费 | 实际赎回费 | 0 | 不适用 |
+
+确认时强制金额守恒：`申购 apply_amount == confirmed_amount + fee_amount`。净值与份额按平台回报原样保存，不反推、不用估值代替确认值。
+
+### 15.3 分录模板（借贷平衡）
+
+- **申购**：借 `SECURITY` = `apply_amount`（成本基础＝实际现金流出含申购费），贷 `CASH` = 同额。建立 `lot_origin=FUND` 的批次，成本 `apply_amount`，数量 `confirmed_shares`，单位成本 = 成本 / 份额，开仓日 = 确认日。不单独借记费用，避免重复计入成本。
+- **赎回**：借 `CASH` = `confirmed_amount − fee_amount`（净到账），贷 `SECURITY` = 移动加权平均出库成本，差额贷 `REALIZED_GAIN` 或借 `REALIZED_LOSS`。按 `confirmed_shares` 减少持仓；全额赎回时出库成本取剩余总成本、尾差归零。
+- **现金分红**：借 `CASH` = 到账金额，贷 `DIVIDEND_INCOME` = 同额。**不增加份额、不产生第二条现金流**。
+- **红利再投资**：借 `SECURITY` = `confirmed_amount`，贷 `DIVIDEND_INCOME` = 同额。建立 `lot_origin=DIVIDEND_REINVEST` 的批次；**不重复把同一笔分红记作现金**。
+
+### 15.4 成本口径与冲正
+
+- 场外基金与股票/ETF 共用「移动加权平均」成本口径（`positions/service.py:reduce_position`），但**处理器完全分离**：基金走 `app/funds/handlers.py`，不复用证券成交明细逻辑（agent.md §3）。
+- 不同渠道（不同投资账户）分别核算份额、成本与批次，不跨账户合并。
+- 申购 / 红利再投资冲正：仅当其形成的批次未被消耗时允许，冲正时删除批次；已被赎回消耗则必须走反向交易。
+- 赎回冲正暂不开放（需还原批次消耗轨迹），与证券卖出冲正一致。
+- 现金分红无批次，可直接冲正。

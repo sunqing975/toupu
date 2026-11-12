@@ -22,6 +22,14 @@ SECURITY_BUY_TYPES = {"STOCK_BUY", "ETF_BUY"}
 SECURITY_SELL_TYPES = {"STOCK_SELL", "ETF_SELL"}
 SECURITY_TYPES = SECURITY_BUY_TYPES | SECURITY_SELL_TYPES
 
+# M3 场外基金：确认数据到达前不得过账（ledger-rules §15.1）
+FUND_CONFIRM_REQUIRED = {"FUND_SUBSCRIBE", "FUND_REDEEM", "DIVIDEND_REINVEST"}
+# 会建立持仓批次、冲正时需检查批次未被消耗的基金交易类型
+FUND_LOT_TYPES = {"FUND_SUBSCRIBE", "DIVIDEND_REINVEST"}
+FUND_TYPES = FUND_CONFIRM_REQUIRED | {"CASH_DIVIDEND"}
+# 会建立持仓批次的交易类型（证券买入 + 基金申购/再投资）：冲正时校验并删除批次
+LOT_OPENING_TYPES = SECURITY_BUY_TYPES | FUND_LOT_TYPES
+
 
 def get_or_create_cash(db: Session, account_id: uuid.UUID, currency: str = "CNY") -> LedgerAccount:
     acc = (
@@ -198,6 +206,23 @@ def _cash_lines(db: Session, txn: InvestmentTransaction) -> list[Line]:
     )
 
 
+def _fund_handlers() -> dict:
+    # 延迟导入避免 funds 模块与 ledger 模块循环依赖
+    from app.funds.handlers import (
+        cash_dividend_lines,
+        dividend_reinvest_lines,
+        fund_redeem_lines,
+        fund_subscribe_lines,
+    )
+
+    return {
+        "FUND_SUBSCRIBE": fund_subscribe_lines,
+        "FUND_REDEEM": fund_redeem_lines,
+        "CASH_DIVIDEND": cash_dividend_lines,
+        "DIVIDEND_REINVEST": dividend_reinvest_lines,
+    }
+
+
 HANDLERS = {
     "DEPOSIT": _cash_lines,
     "WITHDRAW": _cash_lines,
@@ -206,6 +231,7 @@ HANDLERS = {
     "ETF_BUY": _security_buy_lines,
     "STOCK_SELL": _security_sell_lines,
     "ETF_SELL": _security_sell_lines,
+    **_fund_handlers(),
 }
 
 
@@ -220,6 +246,9 @@ def post_transaction(db: Session, txn: InvestmentTransaction) -> JournalEntry:
         return existing  # 幂等：重复过账无副作用
     if txn.status != "CONFIRMED":
         raise BusinessError("交易未确认，不能过账")
+    # 场外基金：确认数据到达前不得过账（ledger-rules §15.1）
+    if txn.transaction_type in FUND_CONFIRM_REQUIRED and txn.confirmation_status != "CONFIRMED":
+        raise BusinessError("基金交易未完成确认，不能过账")
     if txn.reversal_of_id is not None and txn.transaction_type not in HANDLERS:
         raise BusinessError("过账类型暂不支持")
 
@@ -269,7 +298,7 @@ def reverse_transaction(db: Session, txn: InvestmentTransaction) -> InvestmentTr
         raise BusinessError("该交易已冲正")
 
     # 持仓一致性保护（docs/ledger-rules.md §11：批次是成本分摊轨迹）
-    if txn.transaction_type in SECURITY_BUY_TYPES:
+    if txn.transaction_type in LOT_OPENING_TYPES:
         from app.positions.service import PositionLot
 
         lots = db.query(PositionLot).filter_by(origin_transaction_id=txn.id).all()
@@ -277,9 +306,9 @@ def reverse_transaction(db: Session, txn: InvestmentTransaction) -> InvestmentTr
             raise BusinessError("原交易缺少持仓批次，无法冲正")
         if any(lot.remaining_quantity != lot.quantity for lot in lots):
             raise BusinessError("该买入形成的批次已被卖出，不能冲正，请录入反向卖出交易更正")
-    elif txn.transaction_type in SECURITY_SELL_TYPES:
-        # shortcut: 卖出冲正需还原批次消耗轨迹，暂未开放，升级时机：出现真实冲正需求
-        raise BusinessError("卖出交易的冲正暂不开放，请录入反向买入交易更正持仓与成本")
+    elif txn.transaction_type in SECURITY_SELL_TYPES | {"FUND_REDEEM"}:
+        # shortcut: 卖出/赎回冲正需还原批次消耗轨迹，暂未开放，升级时机：出现真实冲正需求
+        raise BusinessError("卖出/赎回交易的冲正暂不开放，请录入反向交易更正持仓与成本")
 
     reversal = InvestmentTransaction(
         account_id=txn.account_id,
@@ -321,8 +350,8 @@ def reverse_transaction(db: Session, txn: InvestmentTransaction) -> InvestmentTr
         )
 
     txn.status = "REVERSED"
-    # 买入冲正：删除其形成的批次（已校验未被消耗），保持批次与分录一致
-    if txn.transaction_type in SECURITY_BUY_TYPES:
+    # 买入/申购冲正：删除其形成的批次（已校验未被消耗），保持批次与分录一致
+    if txn.transaction_type in LOT_OPENING_TYPES:
         from app.positions.service import PositionLot
 
         for lot in db.query(PositionLot).filter_by(origin_transaction_id=txn.id):
