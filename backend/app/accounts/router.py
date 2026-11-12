@@ -12,7 +12,7 @@ from app.db.session import get_db
 
 router = APIRouter(prefix="/api/v1/accounts", tags=["accounts"])
 
-AccountType = Literal["BROKER", "FUND_PLATFORM", "BANK", "CASH"]
+AccountType = Literal["BROKER", "FUND_PLATFORM"]
 AccountStatus = Literal["ACTIVE", "FROZEN", "CLOSED"]
 
 

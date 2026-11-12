@@ -84,7 +84,7 @@
 ## 7. 账户管理（/accounts）｜P0（后端已实现）
 
 - **列表**：名称、类型徽标、币种、状态、备注；新建/编辑弹窗。
-- **类型**：BROKER/FUND_PLATFORM/BANK/CASH；状态 ACTIVE/FROZEN/CLOSED。
+- **类型**：BROKER/FUND_PLATFORM（银行与独立现金账户暂缓）；状态 ACTIVE/FROZEN/CLOSED。
 - **删除保护**：被账本引用 → 409，页面提示改用"关闭"。
 - **数据**：`/api/v1/accounts` ✅。
 

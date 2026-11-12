@@ -37,11 +37,19 @@ def test_account_crud() -> None:
 
 def test_duplicate_account_name_rejected() -> None:
     name = _unique_name()
-    first = client.post("/api/v1/accounts", json={"name": name, "account_type": "BANK"})
+    first = client.post("/api/v1/accounts", json={"name": name, "account_type": "FUND_PLATFORM"})
     assert first.status_code == 201
-    resp = client.post("/api/v1/accounts", json={"name": name, "account_type": "BANK"})
+    resp = client.post("/api/v1/accounts", json={"name": name, "account_type": "FUND_PLATFORM"})
     assert resp.status_code == 409
     assert resp.json()["error"]["code"] == "HTTP_ERROR"
+
+
+def test_bank_cash_account_type_rejected() -> None:
+    # v0.0.1 范围外：银行与独立现金账户暂缓
+    resp = client.post("/api/v1/accounts", json={"name": _unique_name(), "account_type": "BANK"})
+    assert resp.status_code == 422
+    resp = client.post("/api/v1/accounts", json={"name": _unique_name(), "account_type": "CASH"})
+    assert resp.status_code == 422
 
 
 def test_invalid_account_type_rejected() -> None:

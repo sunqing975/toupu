@@ -12,15 +12,23 @@ def test_health_ok() -> None:
     assert body == {"status": "ok", "app": "toupu", "version": "0.0.1"}
 
 
-def test_migrations_recorded() -> None:
-    with TestClient(app):
-        from sqlalchemy import text
+def test_migrations_up_to_date() -> None:
+    # alembic_version 只存当前 head；与版本目录的实际 head 比对，加迁移无需改测试
+    from pathlib import Path
 
-        from app.db.session import SessionLocal
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+    from sqlalchemy import text
 
-        with SessionLocal() as db:
-            versions = {r[0] for r in db.execute(text("SELECT version_num FROM alembic_version"))}
-    assert versions == {"0001"}
+    from app.db.session import SessionLocal
+
+    cfg = Config()
+    cfg.set_main_option("script_location", str(Path(__file__).resolve().parents[1] / "alembic"))
+    head = ScriptDirectory.from_config(cfg).get_current_head()
+
+    with TestClient(app), SessionLocal() as db:
+        versions = {r[0] for r in db.execute(text("SELECT version_num FROM alembic_version"))}
+    assert versions == {head}
 
 
 def test_error_response_is_unified() -> None:

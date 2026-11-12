@@ -11,8 +11,6 @@ import { useToast } from "../components/Toast"
 const ACCOUNT_TYPES: Record<string, string> = {
   BROKER: "券商",
   FUND_PLATFORM: "基金平台",
-  BANK: "银行",
-  CASH: "现金",
 }
 
 type FormState = { name: string; account_type: string; currency: string; notes: string }

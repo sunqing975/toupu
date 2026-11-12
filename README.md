@@ -1,6 +1,6 @@
 # 投谱 Toupu · Personal Investment System
 
-**投谱**（Toupu）——个人投资资产管理与决策系统：记录、核算、决策与计划。第一版面向中国市场，支持场外公募基金、场内 ETF、A 股股票及现金账户；支持手动录入和 Excel/CSV 导入；提供完整投资账本、持仓核算、收益分析、风险提醒和 Agent 接口。
+**投谱**（Toupu）——个人投资资产管理与决策系统：记录、核算、决策与计划。第一版面向中国市场，支持场外公募基金、场内 ETF、A 股股票；支持手动录入和 Excel/CSV 导入；提供完整投资账本、持仓核算、收益分析、风险提醒和 Agent 接口。
 
 ## 项目原则
 
@@ -18,7 +18,7 @@
 - 场外公募基金：申购、赎回、转换、分红、红利再投资、份额确认、净值历史。
 - 场内 ETF：买入、卖出、成交、费用、行情、分红。
 - A 股股票：买入、卖出、成交、费用、分红、送转股等公司行为。
-- 账户：证券账户、基金平台账户、银行/现金账户、账户间转账。
+- 账户：证券账户、基金平台账户、账户间转账（银行与独立现金账户暂缓）。
 - 账本：复式记账、初始资产导入、冲正、审计。
 - 导入：手动录入、Excel/CSV 导入、字段映射、预览、去重、人工确认。
 - 分析：持仓、成本、已实现/未实现盈亏、现金余额、资产快照、XIRR/TWR（分阶段实现）。
@@ -60,21 +60,31 @@
 
 ## 开发快速开始
 
-```bash
-# 1. 起数据库、API 和前端（含 Alembic 迁移）
-docker compose up -d --build
-curl localhost:8000/health
-# 前端：http://localhost:5173（静态页面 + /api 反代到 API）
+开发期**只把数据库放在容器里**，前后端本地进程跑，改动即时生效：
 
-# 2. 本地开发后端（需 Python 3.12+，uv 管理）
+```bash
+# 1. 数据库（容器）
+docker compose up -d          # 默认只启动 db（宿主机端口 5433）
+
+# 2. 后端（本地进程，启动时自动执行迁移）
 cd backend && uv sync
 cp ../.env.example .env
-uv run alembic upgrade head
-uv run pytest && uv run ruff check app tests && uv run mypy app
+uv run uvicorn app.main:app --reload   # http://localhost:8000
 
-# 3. 本地开发前端（需 Node 20+）
+# 3. 前端（本地进程，/api 代理到 8000）
 cd frontend && npm install
-npm run dev   # Vite 代理 /api → localhost:8000
+npm run dev                   # http://localhost:5173
+
+# 测试与检查
+cd backend && uv run pytest && uv run ruff check app tests && uv run mypy app
+```
+
+完整容器化部署（演示/生产）：
+
+```bash
+docker compose --profile full up -d --build
+# 前端 http://localhost:5173，API http://localhost:8000
+```
 ```
 
 ## 开发启动建议

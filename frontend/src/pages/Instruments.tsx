@@ -8,9 +8,9 @@ import { Skeleton } from "../components/Skeleton"
 import { useToast } from "../components/Toast"
 
 const TYPE_LABELS: Record<string, string> = {
-  FUND: "基金",
-  ETF: "ETF",
-  STOCK: "股票",
+  FUND: "基金（场外）",
+  ETF: "ETF（场内）",
+  STOCK: "股票（场内）",
 }
 
 type FormState = {
