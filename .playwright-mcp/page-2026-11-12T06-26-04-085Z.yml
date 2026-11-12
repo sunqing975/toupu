@@ -1,0 +1,56 @@
+- generic [ref=f3e2]:
+  - generic [ref=f3e3]:
+    - complementary [ref=f3e4]:
+      - generic [ref=f3e5]:
+        - generic [aria-hidden] [ref=f3e6]: 投
+        - text: 投谱
+      - navigation "主导航" [ref=f3e7]:
+        - link "总览" [ref=f3e8] [cursor=pointer]:
+          - /url: /
+        - link "持仓" [ref=f3e14] [cursor=pointer]:
+          - /url: /positions
+        - link "交易" [ref=f3e18] [cursor=pointer]:
+          - /url: /transactions
+        - link "账本" [ref=f3e22] [cursor=pointer]:
+          - /url: /ledger
+        - link "导入" [ref=f3e25] [cursor=pointer]:
+          - /url: /imports
+        - link "账户" [ref=f3e29] [cursor=pointer]:
+          - /url: /accounts
+        - link "标的" [ref=f3e33] [cursor=pointer]:
+          - /url: /instruments
+        - link "设置" [ref=f3e38] [cursor=pointer]:
+          - /url: /settings
+      - generic [ref=f3e42]: 投谱 v0.0.1
+    - generic [ref=f3e43]:
+      - banner [ref=f3e44]:
+        - heading "总览" [level=1] [ref=f3e45]
+      - generic [ref=f3e46]:
+        - generic [ref=f3e48]:
+          - heading "总览" [level=1] [ref=f3e49]
+          - paragraph [ref=f3e50]: 你的资产与待办
+        - generic [ref=f3e51]:
+          - generic [ref=f3e52]:
+            - generic [ref=f3e53]: 总资产
+            - generic [ref=f3e54]: —
+            - generic [ref=f3e55]: 随 M1 账本上线
+          - generic [ref=f3e56]:
+            - generic [ref=f3e57]: 现金合计
+            - generic [ref=f3e58]: —
+            - generic [ref=f3e59]: 随 M1 账本上线
+          - generic [ref=f3e60]:
+            - generic [ref=f3e61]: 持仓市值
+            - generic [ref=f3e62]: —
+            - generic [ref=f3e63]: 随 M2 持仓上线
+          - generic [ref=f3e64]:
+            - generic [ref=f3e65]: 累计盈亏
+            - generic [ref=f3e66]: —
+            - generic [ref=f3e67]: 随 M2 成本核算上线
+        - generic [ref=f3e68]:
+          - generic [ref=f3e69]:
+            - generic [ref=f3e70]: 近期交易
+            - generic [ref=f3e71]:
+              - generic [ref=f3e76]: 交易功能即将上线
+              - paragraph [ref=f3e77]: 交易草稿、确认与入账随 M1 里程碑推进。
+          - generic [ref=f3e78]: 账户与标的
+  - status

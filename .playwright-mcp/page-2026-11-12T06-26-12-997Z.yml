@@ -1,0 +1,63 @@
+- generic [ref=f3e2]:
+  - generic [ref=f3e3]:
+    - complementary [ref=f3e4]:
+      - generic [ref=f3e5]:
+        - generic [aria-hidden] [ref=f3e6]: 投
+        - text: 投谱
+      - navigation "主导航" [ref=f3e7]:
+        - link "总览" [ref=f3e8] [cursor=pointer]:
+          - /url: /
+        - link "持仓" [ref=f3e14] [cursor=pointer]:
+          - /url: /positions
+        - link "交易" [ref=f3e18] [cursor=pointer]:
+          - /url: /transactions
+        - link "账本" [ref=f3e22] [cursor=pointer]:
+          - /url: /ledger
+        - link "导入" [ref=f3e25] [cursor=pointer]:
+          - /url: /imports
+        - link "账户" [active] [ref=f3e29] [cursor=pointer]:
+          - /url: /accounts
+        - link "标的" [ref=f3e33] [cursor=pointer]:
+          - /url: /instruments
+        - link "设置" [ref=f3e38] [cursor=pointer]:
+          - /url: /settings
+      - generic [ref=f3e42]: 投谱 v0.0.1
+    - generic [ref=f3e43]:
+      - banner [ref=f3e44]:
+        - heading "账户" [level=1] [ref=f3e90]
+      - generic [ref=f3e91]:
+        - generic [ref=f3e92]:
+          - generic [ref=f3e93]:
+            - heading "账户" [level=1] [ref=f3e94]
+            - paragraph [ref=f3e95]: 券商、基金平台、银行与现金账户
+          - button "新建账户" [ref=f3e96] [cursor=pointer]
+        - table [ref=f3e99]:
+          - rowgroup [ref=f3e100]:
+            - row [ref=f3e101]:
+              - columnheader "名称" [ref=f3e102]
+              - columnheader "类型" [ref=f3e103]
+              - columnheader "币种" [ref=f3e104]
+              - columnheader "状态" [ref=f3e105]
+              - columnheader "备注" [ref=f3e106]
+              - columnheader [ref=f3e107]
+          - rowgroup [ref=f3e108]:
+            - row [ref=f3e109]:
+              - cell "券商主账户" [ref=f3e110]
+              - cell "券商" [ref=f3e111]
+              - cell "CNY" [ref=f3e112]
+              - cell "正常" [ref=f3e113]
+              - cell "—" [ref=f3e115]
+              - cell [ref=f3e116]:
+                - button "编辑" [ref=f3e117] [cursor=pointer]
+                - button "删除" [ref=f3e118] [cursor=pointer]
+            - row [ref=f3e119]:
+              - cell "测试账户-3b5f1d39" [ref=f3e120]
+              - cell "银行" [ref=f3e121]
+              - cell "CNY" [ref=f3e122]
+              - cell "正常" [ref=f3e123]
+              - cell "—" [ref=f3e125]
+              - cell [ref=f3e126]:
+                - button "编辑" [ref=f3e127] [cursor=pointer]
+                - button "删除" [ref=f3e128] [cursor=pointer]
+        - text: "* *"
+  - status

@@ -1,0 +1,56 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - complementary [ref=e4]:
+      - generic [ref=e5]:
+        - generic [aria-hidden] [ref=e6]: 投
+        - text: 投谱
+      - navigation "主导航" [ref=e7]:
+        - link "总览" [ref=e8] [cursor=pointer]:
+          - /url: /
+        - link "持仓" [ref=e14] [cursor=pointer]:
+          - /url: /positions
+        - link "交易" [ref=e18] [cursor=pointer]:
+          - /url: /transactions
+        - link "账本" [ref=e22] [cursor=pointer]:
+          - /url: /ledger
+        - link "导入" [ref=e25] [cursor=pointer]:
+          - /url: /imports
+        - link "账户" [ref=e29] [cursor=pointer]:
+          - /url: /accounts
+        - link "标的" [ref=e33] [cursor=pointer]:
+          - /url: /instruments
+        - link "设置" [ref=e38] [cursor=pointer]:
+          - /url: /settings
+      - generic [ref=e42]: 投谱 v0.0.1
+    - generic [ref=e43]:
+      - banner [ref=e44]:
+        - heading "总览" [level=1] [ref=e45]
+      - generic [ref=e46]:
+        - generic [ref=e48]:
+          - heading "总览" [level=1] [ref=e49]
+          - paragraph [ref=e50]: 你的资产与待办
+        - generic [ref=e51]:
+          - generic [ref=e52]:
+            - generic [ref=e53]: 总资产
+            - generic [ref=e54]: —
+            - generic [ref=e55]: 随 M1 账本上线
+          - generic [ref=e56]:
+            - generic [ref=e57]: 现金合计
+            - generic [ref=e58]: —
+            - generic [ref=e59]: 随 M1 账本上线
+          - generic [ref=e60]:
+            - generic [ref=e61]: 持仓市值
+            - generic [ref=e62]: —
+            - generic [ref=e63]: 随 M2 持仓上线
+          - generic [ref=e64]:
+            - generic [ref=e65]: 累计盈亏
+            - generic [ref=e66]: —
+            - generic [ref=e67]: 随 M2 成本核算上线
+        - generic [ref=e68]:
+          - generic [ref=e69]:
+            - generic [ref=e70]: 近期交易
+            - generic [ref=e71]:
+              - generic [ref=e76]: 交易功能即将上线
+              - paragraph [ref=e77]: 交易草稿、确认与入账随 M1 里程碑推进。
+          - generic [ref=e78]: 账户与标的
+  - status

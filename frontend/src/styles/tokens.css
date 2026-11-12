@@ -1,0 +1,48 @@
+/* 设计令牌 —— 与 frontend-design.md §3 完全对应，组件内禁止裸写 hex */
+:root {
+  --color-primary: #1e40af;
+  --color-on-primary: #ffffff;
+  --color-accent: #059669;
+  --color-up: #e5484d;
+  --color-down: #2e9e63;
+  --color-destructive: #b91c1c;
+  --color-warning: #b45309;
+  --color-background: #f8fafc;
+  --color-card: #ffffff;
+  --color-foreground: #0f172a;
+  --color-muted-foreground: #64748b;
+  --color-border: #e2e8f0;
+  --color-ring: #1e40af;
+
+  --radius-card: 8px;
+  --radius-control: 6px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --shadow-pop: 0 8px 24px rgba(15, 23, 42, 0.12);
+
+  --font-sans:
+    "IBM Plex Sans", system-ui, -apple-system, "PingFang SC", "Hiragino Sans GB",
+    "Noto Sans SC", "Microsoft YaHei", sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-primary: #3b82f6;
+    --color-accent: #34d399;
+    --color-up: #f87171;
+    --color-down: #4ade80;
+    --color-destructive: #ef4444;
+    --color-warning: #fbbf24;
+    --color-background: #0f172a;
+    --color-card: #192134;
+    --color-foreground: #f8fafc;
+    --color-muted-foreground: #94a3b8;
+    --color-border: rgba(255, 255, 255, 0.08);
+    --color-ring: #93c5fd;
+    --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.45);
+  }
+}
