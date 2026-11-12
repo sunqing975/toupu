@@ -75,7 +75,7 @@ export function Dashboard() {
               />
             </div>
             <div className="card">
-              <div className="card__title">账户与标的</div>
+              <div className="card__title">账户与品种</div>
               {accounts === null || instruments === null ? (
                 <div style={{ display: "grid", gap: "var(--space-3)" }}>
                   <Skeleton />
@@ -87,7 +87,7 @@ export function Dashboard() {
                     账户 {accounts.length} 个
                   </li>
                   <li className="num" style={{ padding: "var(--space-2) 0" }}>
-                    标的 {instruments.length} 个
+                    品种 {instruments.length} 个
                   </li>
                   <li style={{ padding: "var(--space-2) 0", color: "var(--color-muted-foreground)" }}>
                     <PieChart size={14} aria-hidden style={{ verticalAlign: "-2px", marginRight: 6 }} />

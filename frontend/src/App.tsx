@@ -22,7 +22,7 @@ const NAV = [
   { to: "/ledger", label: "账本", icon: BookText, title: "账本" },
   { to: "/imports", label: "导入", icon: Upload, title: "导入" },
   { to: "/accounts", label: "账户", icon: Wallet, title: "账户" },
-  { to: "/instruments", label: "标的", icon: Tags, title: "标的" },
+  { to: "/instruments", label: "投资品种", icon: Tags, title: "投资品种" },
   { to: "/settings", label: "设置", icon: Settings, title: "设置" },
 ]
 

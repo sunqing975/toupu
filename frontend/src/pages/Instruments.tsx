@@ -64,7 +64,7 @@ export function Instruments() {
         name: form.name,
         currency: form.currency,
       })
-      toast("success", "标的已创建")
+      toast("success", "品种已创建")
       setFormOpen(false)
       setForm(EMPTY_FORM)
       load()
@@ -79,11 +79,11 @@ export function Instruments() {
     <div className="page">
       <div className="page__head">
         <div>
-          <p className="page__sub">基金、ETF 与股票，市场 + 代码唯一</p>
+          <p className="page__sub">你投资的对象：基金、ETF 与股票，市场 + 代码唯一</p>
         </div>
         <button className="btn btn--primary" onClick={() => setFormOpen(true)}>
           <Plus size={16} aria-hidden />
-          新建标的
+          新建品种
         </button>
       </div>
 
@@ -121,12 +121,12 @@ export function Instruments() {
         ) : instruments.length === 0 ? (
           <EmptyState
             icon={<Tags size={40} aria-hidden />}
-            title={filterType ? "该类型下暂无标的" : "还没有标的"}
-            description="标的用于交易与持仓，市场 + 代码全局唯一。"
+            title={filterType ? "该类型下暂无品种" : "还没有投资品种"}
+            description="品种是你投资的对象（股票/基金/ETF），市场 + 代码全局唯一。"
             action={
               !filterType && (
                 <button className="btn btn--primary" onClick={() => setFormOpen(true)}>
-                  新建标的
+                  新建品种
                 </button>
               )
             }
@@ -165,7 +165,7 @@ export function Instruments() {
         )}
       </div>
 
-      <Dialog open={formOpen} title="新建标的" onClose={() => setFormOpen(false)}>
+      <Dialog open={formOpen} title="新建投资品种" onClose={() => setFormOpen(false)}>
         <form onSubmit={submit}>
           <div className="field">
             <label className="field__label" htmlFor="ins-type" aria-required="true">
