@@ -55,6 +55,20 @@
 - [`docs/database-design.md`](docs/database-design.md)：数据库设计约定和初始表清单。
 - [`docs/implementation-plan.md`](docs/implementation-plan.md)：开发顺序、里程碑和验收标准。
 
+## 开发快速开始
+
+```bash
+# 1. 起数据库和 API（含 Alembic 迁移）
+docker compose up -d --build
+curl localhost:8000/health
+
+# 2. 本地开发后端（需 Python 3.12+，uv 管理）
+cd backend && uv sync
+cp ../.env.example .env   # 宿主机 Postgres 端口映射为 5433，避开本机 5432
+uv run alembic upgrade head
+uv run pytest && uv run ruff check app tests && uv run mypy app
+```
+
 ## 开发启动建议
 
 1. 先阅读 `agent.md` 和全部 `docs/` 文档。
