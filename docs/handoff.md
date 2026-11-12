@@ -5,7 +5,7 @@
 
 ## 1. 一句话状态
 
-**M0（骨架）、M1（基础账本）、交易页前端已完成并提交；M2（证券交易）后端已修复、测试全绿（26 passed）、curl 实测通过并提交；M2 前端闭环（证券录入 + 持仓页）待做**。
+**M0（骨架）、M1（基础账本）、交易页前端已完成并提交；M2（证券交易）后端已修复、测试全绿（M1 19 + M2 7 = 26 passed）、ruff/mypy 干净、curl 实测核对 §5 数值一致，并已提交；M2 前端闭环（证券录入 + 持仓页）待做**。
 
 ## 2. 项目定位（摘要，详见 agent.md / README）
 
@@ -80,7 +80,7 @@ uv run mypy app
 - 证券：股票/ETF 买入卖出（可多笔成交）、费用、持仓批次与移动加权平均成本、部分卖出、已实现盈亏、`GET /api/v1/positions`。
 - 前端：账户、品种、交易三个功能页 + 总览，Swiss 极简，信任蓝 `#1E40AF`，红涨绿跌，tabular-nums。
 
-## 5. 本次提交的工作区（M2 证券交易，已全绿）
+## 5. M2（证券交易）后端 —— 已全绿，待提交
 
 `git status`（提交前）：
 
@@ -105,14 +105,14 @@ M  backend/app/transactions/router.py
 | `alembic/versions/0004_transaction_instrument.py` | `investment_transactions.instrument_id` |
 | `alembic/versions/0005_journal_line_order.py` | `journal_lines.line_no`，保证分录行按过账顺序确定性返回 |
 | `app/executions/models.py` | `TradeExecution`：序号/数量/价格/毛额/费用/净额 |
-| `app/positions/service.py` | `PositionLot`、`PositionLotDisposal` 模型 + `apply_buy`/`apply_sell`：移动加权平均成本，FIFO 消耗批次，成本按比例分摊，清仓尾差归零 |
+| `app/positions/service.py` | `PositionLot`、`PositionLotDisposal` 模型 + `apply_buy`/`apply_sell`：移动加权平均成本，FIFO 消耗批次，出库成本 = 单位成本 × 卖出量（清仓时取剩余总成本，尾差归零），剩余批次按新单位成本重算 |
 | `app/positions/router.py` | `GET /api/v1/positions`：按账户×品种聚合持仓（quantity/total_cost/unit_cost + 品种代码名称） |
 | `app/ledger/service.py` | 证券科目 `get_or_create_security`、`get_or_create_income`；`_security_buy_lines`（借证券/贷现金，费用入成本）、`_security_sell_lines`（借现金净额/贷证券出库成本/差额记已实现损益）；买入冲正删除未消耗批次；卖出冲正暂不开放；分录行写 `line_no` |
 | `app/transactions/router.py` | 7 种交易类型；`ExecutionIn` 成交入参；服务端算 gross/net/total（买入 net=gross+费，卖出 net=gross−费）；detail 输出 executions；按 `line_no` 返回分录行 |
 | `app/main.py` | 挂载 positions router |
-| `tests/test_securities.py` | 7 个验收测试 |
+| `tests/test_securities.py` | 7 个验收测试（见下「测试覆盖」） |
 
-测试覆盖（全部通过，共 26 个测试）：
+测试覆盖（全部通过；后端全量 26 个测试 = M1 19 + M2 7）：
 
 - 买入 2 笔成交（100@10 费 5 + 100@12）→ 总成本 2205、200 股、单位成本 11.025；
 - 卖 50@11 费 5 → 净额 545、出库成本 551.25、已实现亏损 6.25；
@@ -122,7 +122,7 @@ M  backend/app/transactions/router.py
 
 ## 6. M2 设计决策与已知取舍
 
-- 成本口径：**移动加权平均**（买入按笔形成批次，卖出 FIFO 消耗批次数量，但出库成本按加权平均比例分摊）。
+- 成本口径：**移动加权平均**（买入按笔形成批次，卖出 FIFO 消耗批次数量，出库成本 = 单位成本 × 卖出量；清仓时出库成本 = 剩余总成本，尾差归零，剩余批次按新单位成本重算成本，Σ 精确）。
 - 卖出损益：`realized = net_amount − cost_out`；盈利贷记「已实现收益」，亏损借记「已实现损失」。
 - 卖出净额可能小于出库成本 → 已实现损失，分录仍平衡（借现金 + 借损失 = 贷证券）。
 - **买入冲正**：仅当批次未被消耗时允许，冲正时删除批次（`shortcut` 注释在 `ledger/service.py`）。
