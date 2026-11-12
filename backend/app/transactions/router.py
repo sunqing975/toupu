@@ -13,28 +13,61 @@ from app.accounts.models import InvestmentAccount
 from app.audit import record_audit
 from app.core.errors import BusinessError
 from app.db.session import get_db
+from app.executions.models import TradeExecution
+from app.instruments.models import Instrument
 from app.ledger.models import JournalEntry, JournalLine, LedgerAccount
 from app.ledger.service import post_transaction, reverse_transaction
 from app.transactions.models import InvestmentTransaction
 
 router = APIRouter(prefix="/api/v1/transactions", tags=["transactions"])
 
-M1_TYPES = Literal["DEPOSIT", "WITHDRAW", "ACCOUNT_TRANSFER"]
+CASH_TYPES = ("DEPOSIT", "WITHDRAW", "ACCOUNT_TRANSFER")
+SECURITY_BUY_TYPES = ("STOCK_BUY", "ETF_BUY")
+SECURITY_SELL_TYPES = ("STOCK_SELL", "ETF_SELL")
+SECURITY_TYPES = SECURITY_BUY_TYPES + SECURITY_SELL_TYPES
+TxnType = Literal[
+    "DEPOSIT",
+    "WITHDRAW",
+    "ACCOUNT_TRANSFER",
+    "STOCK_BUY",
+    "STOCK_SELL",
+    "ETF_BUY",
+    "ETF_SELL",
+]
+
+
+class ExecutionIn(BaseModel):
+    execution_date: date
+    quantity: Decimal = Field(gt=0)
+    price: Decimal = Field(gt=0)
+    fee_amount: Decimal = Field(default=Decimal(0), ge=0)
 
 
 class TransactionIn(BaseModel):
-    transaction_type: M1_TYPES
+    transaction_type: TxnType
     account_id: uuid.UUID
     counter_account_id: uuid.UUID | None = None
+    instrument_id: uuid.UUID | None = None
     business_date: date
-    amount: Decimal = Field(gt=0)
+    amount: Decimal | None = Field(default=None, gt=0)
     memo: str | None = None
     idempotency_key: str | None = None
+    executions: list[ExecutionIn] = []
 
     @model_validator(mode="after")
-    def transfer_needs_counter(self) -> "TransactionIn":
+    def check_shape(self) -> "TransactionIn":
         if self.transaction_type == "ACCOUNT_TRANSFER" and self.counter_account_id is None:
             raise ValueError("转账必须指定转入账户 counter_account_id")
+        if self.transaction_type in SECURITY_TYPES:
+            if self.instrument_id is None:
+                raise ValueError("证券交易必须指定 instrument_id")
+            if not self.executions:
+                raise ValueError("证券交易必须至少包含一笔成交")
+        else:
+            if self.amount is None:
+                raise ValueError("现金业务必须指定金额 amount")
+            if self.executions:
+                raise ValueError("现金业务不包含成交明细")
         return self
 
 
@@ -44,6 +77,7 @@ class TransactionOut(BaseModel):
     id: uuid.UUID
     account_id: uuid.UUID
     counter_account_id: uuid.UUID | None
+    instrument_id: uuid.UUID | None
     transaction_type: str
     status: str
     business_date: date
@@ -51,6 +85,19 @@ class TransactionOut(BaseModel):
     total_amount: Decimal | None
     memo: str | None
     reversal_of_id: uuid.UUID | None
+
+
+class ExecutionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    sequence_no: int
+    execution_date: date
+    quantity: Decimal
+    price: Decimal
+    gross_amount: Decimal
+    fee_amount: Decimal
+    net_amount: Decimal
 
 
 class LineOut(BaseModel):
@@ -73,6 +120,17 @@ class EntryOut(BaseModel):
 
 class TransactionDetail(TransactionOut):
     entry: EntryOut | None = None
+    executions: list[ExecutionOut] = []
+
+
+def _executions_to_out(db: Session, txn_id: uuid.UUID) -> list[ExecutionOut]:
+    rows = (
+        db.query(TradeExecution)
+        .filter_by(transaction_id=txn_id)
+        .order_by(TradeExecution.sequence_no)
+        .all()
+    )
+    return [ExecutionOut.model_validate(ex, from_attributes=True) for ex in rows]
 
 
 def _entry_to_out(db: Session, entry: JournalEntry | None) -> EntryOut | None:
@@ -82,6 +140,7 @@ def _entry_to_out(db: Session, entry: JournalEntry | None) -> EntryOut | None:
         db.query(JournalLine, LedgerAccount.name)
         .join(LedgerAccount, LedgerAccount.id == JournalLine.ledger_account_id)
         .filter(JournalLine.entry_id == entry.id)
+        .order_by(JournalLine.line_no, JournalLine.id)
         .all()
     )
     return EntryOut(
@@ -100,10 +159,8 @@ def _entry_to_out(db: Session, entry: JournalEntry | None) -> EntryOut | None:
     )
 
 
-@router.post("", status_code=status.HTTP_201_CREATED, response_model=TransactionOut)
-def create_transaction(
-    payload: TransactionIn, db: Session = Depends(get_db)
-) -> InvestmentTransaction:
+@router.post("", status_code=status.HTTP_201_CREATED, response_model=TransactionDetail)
+def create_transaction(payload: TransactionIn, db: Session = Depends(get_db)) -> TransactionDetail:
     if db.get(InvestmentAccount, payload.account_id) is None:
         raise HTTPException(status_code=404, detail="转出账户不存在")
     if (
@@ -114,26 +171,73 @@ def create_transaction(
     if payload.counter_account_id == payload.account_id:
         raise BusinessError("转入账户与转出账户不能相同")
 
+    is_security = payload.transaction_type in SECURITY_TYPES
+    instrument_id = payload.instrument_id
+    if is_security:
+        if db.get(Instrument, instrument_id) is None:
+            raise HTTPException(status_code=404, detail="投资品种不存在")
+    else:
+        instrument_id = None
+
+    # 金额一律服务端计算：gross = 数量×价格；买入 net = gross+费用，卖出 net = gross−费用
+    total_amount = payload.amount
+    if is_security:
+        nets = [
+            (
+                ex.quantity * ex.price + ex.fee_amount
+                if payload.transaction_type in SECURITY_BUY_TYPES
+                else ex.quantity * ex.price - ex.fee_amount
+            )
+            for ex in payload.executions
+        ]
+        total_amount = sum(nets, Decimal(0))
+
     txn = InvestmentTransaction(
         account_id=payload.account_id,
         counter_account_id=payload.counter_account_id
         if payload.transaction_type == "ACCOUNT_TRANSFER"
         else None,
+        instrument_id=instrument_id,
         transaction_type=payload.transaction_type,
         status="DRAFT",
         business_date=payload.business_date,
-        total_amount=payload.amount,
+        total_amount=total_amount,
         memo=payload.memo,
         idempotency_key=payload.idempotency_key,
     )
     db.add(txn)
     try:
+        db.flush()
+        if is_security:
+            # txn.id 由 flush 生成后再落成交，避免主键为 None
+            for no, ex in enumerate(payload.executions, start=1):
+                gross = ex.quantity * ex.price
+                net = (
+                    gross + ex.fee_amount
+                    if payload.transaction_type in SECURITY_BUY_TYPES
+                    else gross - ex.fee_amount
+                )
+                db.add(
+                    TradeExecution(
+                        transaction_id=txn.id,
+                        sequence_no=no,
+                        execution_date=ex.execution_date,
+                        quantity=ex.quantity,
+                        price=ex.price,
+                        gross_amount=gross,
+                        fee_amount=ex.fee_amount,
+                        net_amount=net,
+                    )
+                )
         db.commit()
     except Exception:
         db.rollback()
         raise BusinessError("重复请求：相同幂等键的交易已存在") from None
     db.refresh(txn)
-    return txn
+    detail = TransactionDetail.model_validate(txn, from_attributes=True)
+    detail.executions = _executions_to_out(db, txn.id)
+    detail.entry = None
+    return detail
 
 
 @router.get("", response_model=list[TransactionOut])
@@ -165,6 +269,7 @@ def get_transaction(transaction_id: uuid.UUID, db: Session = Depends(get_db)) ->
     detail.entry = _entry_to_out(
         db, db.query(JournalEntry).filter_by(transaction_id=txn.id).one_or_none()
     )
+    detail.executions = _executions_to_out(db, txn.id)
     return detail
 
 
@@ -193,6 +298,7 @@ def post(transaction_id: uuid.UUID, db: Session = Depends(get_db)) -> Transactio
     db.commit()
     detail = TransactionDetail.model_validate(txn, from_attributes=True)
     detail.entry = _entry_to_out(db, entry)
+    detail.executions = _executions_to_out(db, txn.id)
     return detail
 
 
@@ -206,6 +312,7 @@ def reverse(transaction_id: uuid.UUID, db: Session = Depends(get_db)) -> Transac
     db.refresh(txn)
     detail = TransactionDetail.model_validate(txn, from_attributes=True)
     detail.entry = _entry_to_out(db, db.query(JournalEntry).filter_by(transaction_id=txn.id).one())
+    detail.executions = _executions_to_out(db, txn.id)
     return detail
 
 

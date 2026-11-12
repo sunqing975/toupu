@@ -17,6 +17,9 @@ class InvestmentTransaction(Base):
     counter_account_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("investment_accounts.id"), nullable=True
     )
+    instrument_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("instruments.id"), nullable=True
+    )
     transaction_type: Mapped[str] = mapped_column(String(30))
     status: Mapped[str] = mapped_column(String(12), default="DRAFT")
     confirmation_status: Mapped[str | None] = mapped_column(String(12), nullable=True)
