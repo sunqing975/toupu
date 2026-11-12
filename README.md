@@ -58,15 +58,20 @@
 ## 开发快速开始
 
 ```bash
-# 1. 起数据库和 API（含 Alembic 迁移）
+# 1. 起数据库、API 和前端（含 Alembic 迁移）
 docker compose up -d --build
 curl localhost:8000/health
+# 前端：http://localhost:5173（静态页面 + /api 反代到 API）
 
 # 2. 本地开发后端（需 Python 3.12+，uv 管理）
 cd backend && uv sync
-cp ../.env.example .env   # 宿主机 Postgres 端口映射为 5433，避开本机 5432
+cp ../.env.example .env
 uv run alembic upgrade head
 uv run pytest && uv run ruff check app tests && uv run mypy app
+
+# 3. 本地开发前端（需 Node 20+）
+cd frontend && npm install
+npm run dev   # Vite 代理 /api → localhost:8000
 ```
 
 ## 开发启动建议
