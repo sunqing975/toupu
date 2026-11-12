@@ -1,27 +1,34 @@
 import { useEffect, useState } from "react"
-import { ArrowLeftRight, Check, Ban, Undo2, Send, Eye } from "lucide-react"
+import { ArrowLeftRight, Check, Ban, Undo2, Send, Eye, Plus, Trash2 } from "lucide-react"
 import { accountsApi } from "../api/accounts"
+import { instrumentsApi } from "../api/instruments"
 import {
   TXN_TYPE_LABELS,
+  FORM_TYPES,
+  isSecurityType,
+  SECURITY_BUY_TYPES,
   fmtAmount,
   transactionsApi,
   type Txn,
   type TxnDetail,
+  type ExecutionIn,
 } from "../api/transactions"
-import type { InvestmentAccount } from "../api/types"
+import type { InvestmentAccount, Instrument } from "../api/types"
 import { Dialog } from "../components/Dialog"
 import { EmptyState } from "../components/EmptyState"
 import { Skeleton } from "../components/Skeleton"
 import { StatusBadge } from "../components/StatusBadge"
 import { useToast } from "../components/Toast"
 
-const FORM_TYPES = [
-  { value: "DEPOSIT", label: "入金" },
-  { value: "WITHDRAW", label: "出金" },
-  { value: "ACCOUNT_TRANSFER", label: "转账" },
-] as const
-
 const STATUS_OPTIONS = ["", "DRAFT", "CONFIRMED", "POSTED", "REVERSED", "CANCELLED"] as const
+
+// 证券交易需要：品种、每笔成交（日期/数量/价格/费用）。金额服务端计算。
+type ExecutionDraft = {
+  execution_date: string
+  quantity: string
+  price: string
+  fee_amount: string
+}
 
 type FormState = {
   transaction_type: string
@@ -30,9 +37,18 @@ type FormState = {
   business_date: string
   amount: string
   memo: string
+  instrument_id: string
+  executions: ExecutionDraft[]
 }
 
 const today = () => new Date().toISOString().slice(0, 10)
+
+const EMPTY_EXECUTION: ExecutionDraft = {
+  execution_date: today(),
+  quantity: "",
+  price: "",
+  fee_amount: "0",
+}
 
 const EMPTY_FORM: FormState = {
   transaction_type: "DEPOSIT",
@@ -41,12 +57,15 @@ const EMPTY_FORM: FormState = {
   business_date: today(),
   amount: "",
   memo: "",
+  instrument_id: "",
+  executions: [{ ...EMPTY_EXECUTION }],
 }
 
 export function Transactions() {
   const toast = useToast()
   const [txns, setTxns] = useState<Txn[] | null>(null)
   const [accounts, setAccounts] = useState<InvestmentAccount[]>([])
+  const [instruments, setInstruments] = useState<Instrument[]>([])
   const [statusFilter, setStatusFilter] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [formOpen, setFormOpen] = useState(false)
@@ -57,9 +76,12 @@ export function Transactions() {
 
   const accountName = (id: string | null) =>
     accounts.find((a) => a.id === id)?.name ?? (id ? "未知账户" : "—")
+  const instrumentName = (id: string | null) =>
+    instruments.find((i) => i.id === id)?.name ?? (id ? "未知品种" : "—")
 
   useEffect(() => {
     accountsApi.list().then(setAccounts).catch(() => setAccounts([]))
+    instrumentsApi.list().then(setInstruments).catch(() => setInstruments([]))
   }, [])
 
   const load = (filter = statusFilter) => {
@@ -82,11 +104,24 @@ export function Transactions() {
         transaction_type: form.transaction_type,
         account_id: form.account_id,
         business_date: form.business_date,
-        amount: form.amount,
         memo: form.memo || null,
       }
       if (form.transaction_type === "ACCOUNT_TRANSFER") {
         body.counter_account_id = form.counter_account_id
+      }
+      if (isSecurityType(form.transaction_type)) {
+        // 证券：金额/总成本全部服务端按成交明细计算，前端只传成交。
+        body.instrument_id = form.instrument_id
+        body.executions = form.executions.map(
+          (ex): ExecutionIn => ({
+            execution_date: ex.execution_date,
+            quantity: Number(ex.quantity),
+            price: Number(ex.price),
+            fee_amount: Number(ex.fee_amount || 0),
+          }),
+        )
+      } else {
+        body.amount = form.amount
       }
       await transactionsApi.create(body)
       toast("success", "交易草稿已保存，确认后可入账")
@@ -239,6 +274,11 @@ export function Transactions() {
                   <td>
                     {accountName(t.account_id)}
                     {t.counter_account_id && ` → ${accountName(t.counter_account_id)}`}
+                    {t.instrument_id && (
+                      <div style={{ color: "var(--color-muted-foreground)", fontSize: 12 }}>
+                        {instrumentName(t.instrument_id)}
+                      </div>
+                    )}
                   </td>
                   <td className="cell--num num">{fmtAmount(t.total_amount)}</td>
                   <td>
@@ -273,6 +313,27 @@ export function Transactions() {
               ))}
             </select>
           </div>
+          {isSecurityType(form.transaction_type) && (
+            <div className="field">
+              <label className="field__label" htmlFor="txn-instrument" aria-required="true">
+                投资品种
+              </label>
+              <select
+                id="txn-instrument"
+                className="select"
+                required
+                value={form.instrument_id}
+                onChange={(e) => setForm({ ...form, instrument_id: e.target.value })}
+              >
+                <option value="">选择品种</option>
+                {instruments.map((i) => (
+                  <option key={i.id} value={i.id}>
+                    {i.name}（{i.code}·{i.instrument_type}）
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <div className="field">
             <label className="field__label" htmlFor="txn-account" aria-required="true">
               {form.transaction_type === "ACCOUNT_TRANSFER" ? "转出账户" : "账户"}
@@ -315,37 +376,167 @@ export function Transactions() {
               </select>
             </div>
           )}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-3)" }}>
+          {isSecurityType(form.transaction_type) ? (
             <div className="field">
-              <label className="field__label" htmlFor="txn-date" aria-required="true">
-                日期
-              </label>
-              <input
-                id="txn-date"
-                className="input num"
-                type="date"
-                required
-                value={form.business_date}
-                onChange={(e) => setForm({ ...form, business_date: e.target.value })}
-              />
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  marginBottom: "var(--space-2)",
+                }}
+              >
+                <label className="field__label" aria-required="true">
+                  成交明细（每笔成交的数量 / 价格 / 费用）
+                </label>
+                <button
+                  type="button"
+                  className="btn btn--secondary"
+                  onClick={() => setForm({ ...form, executions: [...form.executions, { ...EMPTY_EXECUTION }] })}
+                >
+                  <Plus size={14} aria-hidden /> 增加成交
+                </button>
+              </div>
+              {form.executions.map((ex, idx) => (
+                <div
+                  key={idx}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1.2fr 1fr 1fr 1fr auto",
+                    gap: "var(--space-2)",
+                    alignItems: "end",
+                    marginBottom: "var(--space-2)",
+                  }}
+                >
+                  <div className="field" style={{ margin: 0 }}>
+                    <label className="field__label">成交日</label>
+                    <input
+                      className="input num"
+                      type="date"
+                      required
+                      value={ex.execution_date}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          executions: form.executions.map((x, i) =>
+                            i === idx ? { ...x, execution_date: e.target.value } : x,
+                          ),
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label className="field__label">数量</label>
+                    <input
+                      className="input num"
+                      type="number"
+                      step="0.000001"
+                      min="0.000001"
+                      required
+                      value={ex.quantity}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          executions: form.executions.map((x, i) =>
+                            i === idx ? { ...x, quantity: e.target.value } : x,
+                          ),
+                        })
+                      }
+                      placeholder="100"
+                    />
+                  </div>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label className="field__label">价格</label>
+                    <input
+                      className="input num"
+                      type="number"
+                      step="0.000001"
+                      min="0.000001"
+                      required
+                      value={ex.price}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          executions: form.executions.map((x, i) =>
+                            i === idx ? { ...x, price: e.target.value } : x,
+                          ),
+                        })
+                      }
+                      placeholder="10.00"
+                    />
+                  </div>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label className="field__label">费用</label>
+                    <input
+                      className="input num"
+                      type="number"
+                      step="0.000001"
+                      min="0"
+                      value={ex.fee_amount}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          executions: form.executions.map((x, i) =>
+                            i === idx ? { ...x, fee_amount: e.target.value } : x,
+                          ),
+                        })
+                      }
+                      placeholder="0.00"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn--secondary"
+                    disabled={form.executions.length === 1}
+                    aria-label="删除这笔成交"
+                    onClick={() =>
+                      setForm({ ...form, executions: form.executions.filter((_, i) => i !== idx) })
+                    }
+                  >
+                    <Trash2 size={14} aria-hidden />
+                  </button>
+                </div>
+              ))}
+              <p style={{ color: "var(--color-muted-foreground)", fontSize: 12, marginTop: "var(--space-1)" }}>
+                {SECURITY_BUY_TYPES.includes(form.transaction_type as (typeof SECURITY_BUY_TYPES)[number])
+                  ? "买入：总成本 = 数量×价格 + 费用（费用计入成本）"
+                  : "卖出：净收入 = 数量×价格 − 费用"}
+                ；金额与成本由服务端按成交明细精确计算。
+              </p>
             </div>
-            <div className="field">
-              <label className="field__label" htmlFor="txn-amount" aria-required="true">
-                金额
-              </label>
-              <input
-                id="txn-amount"
-                className="input num"
-                type="number"
-                step="0.000001"
-                min="0.000001"
-                required
-                value={form.amount}
-                onChange={(e) => setForm({ ...form, amount: e.target.value })}
-                placeholder="0.00"
-              />
+          ) : (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-3)" }}>
+              <div className="field">
+                <label className="field__label" htmlFor="txn-date" aria-required="true">
+                  日期
+                </label>
+                <input
+                  id="txn-date"
+                  className="input num"
+                  type="date"
+                  required
+                  value={form.business_date}
+                  onChange={(e) => setForm({ ...form, business_date: e.target.value })}
+                />
+              </div>
+              <div className="field">
+                <label className="field__label" htmlFor="txn-amount" aria-required="true">
+                  金额
+                </label>
+                <input
+                  id="txn-amount"
+                  className="input num"
+                  type="number"
+                  step="0.000001"
+                  min="0.000001"
+                  required
+                  value={form.amount}
+                  onChange={(e) => setForm({ ...form, amount: e.target.value })}
+                  placeholder="0.00"
+                />
+              </div>
             </div>
-          </div>
+          )}
           <div className="field">
             <label className="field__label" htmlFor="txn-memo">
               备注
@@ -367,7 +558,15 @@ export function Transactions() {
             <button
               type="submit"
               className="btn btn--primary"
-              disabled={busy || !form.account_id || !form.amount}
+              disabled={
+                busy ||
+                !form.account_id ||
+                (form.transaction_type === "ACCOUNT_TRANSFER" ? !form.counter_account_id : false) ||
+                (isSecurityType(form.transaction_type)
+                  ? !form.instrument_id ||
+                    form.executions.some((e) => !e.quantity || !e.price || !e.execution_date)
+                  : !form.amount)
+              }
             >
               保存草稿
             </button>
@@ -424,8 +623,45 @@ export function Transactions() {
                   <td style={{ color: "var(--color-muted-foreground)" }}>金额</td>
                   <td className="num">{fmtAmount(detail.total_amount)}</td>
                 </tr>
+                {detail.instrument_id && (
+                  <tr>
+                    <td style={{ color: "var(--color-muted-foreground)" }}>品种</td>
+                    <td>{instrumentName(detail.instrument_id)}</td>
+                  </tr>
+                )}
               </tbody>
             </table>
+            {detail.executions.length > 0 && (
+              <>
+                <div className="card__title" style={{ margin: "var(--space-4) 0 var(--space-2)" }}>
+                  成交明细
+                </div>
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>成交日</th>
+                      <th className="cell--num">数量</th>
+                      <th className="cell--num">价格</th>
+                      <th className="cell--num">金额</th>
+                      <th className="cell--num">费用</th>
+                      <th className="cell--num">净额</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {detail.executions.map((ex) => (
+                      <tr key={ex.id}>
+                        <td>{ex.execution_date}</td>
+                        <td className="cell--num num">{fmtAmount(ex.quantity)}</td>
+                        <td className="cell--num num">{fmtAmount(ex.price)}</td>
+                        <td className="cell--num num">{fmtAmount(ex.gross_amount)}</td>
+                        <td className="cell--num num">{fmtAmount(ex.fee_amount)}</td>
+                        <td className="cell--num num">{fmtAmount(ex.net_amount)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </>
+            )}
             {detail.entry && (
               <>
                 <div className="card__title" style={{ margin: "var(--space-4) 0 var(--space-2)" }}>

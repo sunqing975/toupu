@@ -18,6 +18,17 @@ export interface Instrument {
   status: string
 }
 
+export interface PositionOut {
+  account_id: string
+  instrument_id: string
+  instrument_code: string
+  instrument_name: string
+  instrument_type: string
+  quantity: string
+  total_cost: string
+  unit_cost: string
+}
+
 export interface Health {
   status: string
   app: string
