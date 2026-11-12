@@ -54,6 +54,9 @@
 - [`docs/ledger-rules.md`](docs/ledger-rules.md)：账本、成本、费用和收益核算规则。
 - [`docs/database-design.md`](docs/database-design.md)：数据库设计约定和初始表清单。
 - [`docs/implementation-plan.md`](docs/implementation-plan.md)：开发顺序、里程碑和验收标准。
+- [`docs/product-spec.md`](docs/product-spec.md)：产品规格（需求、用户、分级）。
+- [`docs/user-flow.md`](docs/user-flow.md)：用户与业务流程。
+- [`docs/page-spec.md`](docs/page-spec.md)：页面信息架构与功能规格。
 
 ## 开发快速开始
 
