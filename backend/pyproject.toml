@@ -34,6 +34,8 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
+# B008：FastAPI 依赖注入的标准写法（Depends 作为参数默认值）
+ignore = ["B008"]
 
 [tool.mypy]
 python_version = "3.12"
