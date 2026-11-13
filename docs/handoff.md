@@ -5,7 +5,7 @@
 
 ## 1. 一句话状态
 
-**M0（骨架）、M1（基础账本）、M2（证券交易）、M3（场外基金：申购/赎回两段式确认 + 分红/红利再投资，前后端整段完成）、M4（导入与期初资产：后端已提交）已完成并提交**：后端 62 passed（M1 19 + M2 7 + M3 17 + M4 19）、ruff/mypy 干净、M4 真实 HTTP E2E 通过；前端 `tsc`/`vite build` 通过、真实 HTTP 全链路 E2E 通过。M4 前端未做，之后按 §9 顺序继续 M4 前端 → M5 → M6 + 界面审查。
+**M0（骨架）、M1（基础账本）、M2（证券交易）、M3（场外基金：申购/赎回两段式确认 + 分红/红利再投资）、M4（导入与期初资产：前后端整段完成）已完成并提交**：后端 62 passed（M1 19 + M2 7 + M3 17 + M4 19）、ruff/mypy 干净、M4 真实 HTTP E2E 通过；前端 `tsc`/`vite build` 通过、M4 前端形状真实 HTTP 全链路 E2E 通过。之后按 §9 顺序继续 M5 → M6 + 界面审查。
 
 ## 2. 项目定位（摘要，详见 agent.md / README）
 
@@ -68,6 +68,8 @@ uv run mypy app
 | `b4ebed5` | **M3 后端**：申购/赎回两段式确认（净值/份额/费用守恒）、现金分红、红利再投资、FUND/DIVIDEND_REINVEST 批次、0006 迁移、17 测试 |
 | `77db678` | **M3 前端闭环**：基金申请/确认录入页（守恒即时校验）、详情分录展示、`/funds` 路由与导航 |
 | `5b80ace` | **M4 后端**：CSV/Excel 上传预览/校验/去重、人工确认单事务过账、OPENING_BALANCE 处理器与期初汇总批次、0007 迁移（含模板种子）、19 测试 |
+| `3d56967` | 文档：同步 handoff —— M4 后端已完成，记录 §6.7 导入/期初口径与踩坑 |
+| `0fa2a63` | **M4 前端闭环**：导入批次上传/预览/错误定位/人工确认/取消页 + `/imports` 路由 |
 | `272bab8` | 前端 v0.1：设计令牌（亮/暗）、应用壳导航、总览/账户/品种页（真实 API）、占位页、Toast/Dialog/徽标/骨架屏 |
 | `480e547`、`12d73bc` | UI 文案去行话（「标的」→「投资品种」）；账户类型收紧为券商/基金平台（迁移 0002）；开发模式改本地进程 |
 | `41f3e22` | 产品三件套（product/user-flow/page-spec）+ frontend-design.md |
@@ -84,7 +86,7 @@ uv run mypy app
 - 证券：股票/ETF 买入卖出（可多笔成交）、费用、持仓批次与移动加权平均成本、部分卖出、已实现盈亏、`GET /api/v1/positions`。
 - 场外基金：`/api/v1/funds/orders` 两段式申购/赎回确认、现金分红、红利再投资、FUND/DIVIDEND_REINVEST 批次。
 - 导入与期初资产：`/api/v1/imports`（模板/批次上传/预览/确认/取消），OPENING_BALANCE 期初现金与期初持仓（期初汇总批次，不伪造成交）。
-- 前端：账户、品种、交易、基金四个功能页 + 持仓页 + 总览，Swiss 极简，信任蓝 `#1E40AF`，红涨绿跌，tabular-nums。
+- 前端：账户、品种、交易、基金、导入五个功能页 + 持仓页 + 总览，Swiss 极简，信任蓝 `#1E40AF`，红涨绿跌，tabular-nums。
 
 ## 5. M2（证券交易）后端 —— 已全绿，已提交（03071d8）
 
@@ -195,6 +197,13 @@ M  backend/app/transactions/router.py
 
 **踩坑**：① 0007 用 `op.execute` 原生 DDL，`ImportFieldMapping` ORM 多写了 `created_at` 导致 `UndefinedColumn` 500 → ORM 必须逐列对齐 DDL；② `autoflush=False` 下 `OpeningBalanceDetail` 必须先 `db.flush()` 再 `post_transaction`，否则处理器查不到明细报「期初交易缺少明细」。
 
+## 6.8 M4 前端形状（0fa2a63）
+
+- `frontend/src/api/imports.ts`：`ImportTemplate`/`ImportBatch`/`RowError`/`ImportRecord`/`BatchDetail`；状态标签 `BATCH_STATUS_LABELS`/`RECORD_STATUS_LABELS`；13 列 `TEMPLATE_COLUMNS`/`COLUMN_LABELS` 与 `sampleCsv()`（可下载示例）；`importsApi.template/list/get/confirm/cancel` 走 `api<T>`，**`upload` 用原生 `fetch` + `FormData`**（不能走 `api()`，它会强制 `Content-Type: application/json` 覆盖浏览器 multipart boundary），错误体仍按 `{error:{code,message}}` 解析成 `ApiError`。
+- `frontend/src/pages/Imports.tsx`（`/imports`，导航「导入」已存在，原来接 Placeholder）：顶部 banner 明确「上传不会立即记账」+ 可展开模板 13 列说明/下载示例 CSV；批次列表（状态筛选、行/错误/重复计数、确认/取消/详情按钮）；上传 Dialog（文件 + 备注）；确认入账 / 取消 Dialog；详情预览 Dialog（批次状态徽标、`raw_headers`、逐行状态 `RecordBadge`、`rowSummary` 摘要、错误定位「第 N 行 · 字段：原因」、`dedup_key`、可导入时显示「确认入账」）。行状态用现有 `badge--*` 语义色，不新增 CSS。
+- `frontend/src/App.tsx`：`/imports` 从 `Placeholder` 换成 `<Imports />`。
+- 验收：`npx tsc --noEmit` = 0，`npx vite build` = 0（2129 modules）；`/tmp/m4_fe_e2e.py` 按前端真实请求形状（multipart `file`+`memo`、`?status=` 过滤、`FormData` 上传、错误行定位、取消、同文件 409）真实 HTTP 11 项全通过。
+
 ## 7. 还没做
 
 | 事项 | 说明 |
@@ -204,7 +213,7 @@ M  backend/app/transactions/router.py
 | ~~M3 场外基金（后端）~~ | 已完成（b4ebed5）：两段式申购/赎回 + 确认守恒 + 现金分红 + 红利再投资 + 17 测试 |
 | ~~M3 场外基金（前端）~~ | 已完成（77db678）：`/funds` 申请/确认页 + 守恒校验 + 分录详情 |
 | ~~M4 导入（后端）~~ | 已完成（5b80ace）：CSV/Excel、字段映射、去重、预览确认、期初资产 + 19 测试 |
-| M4 导入（前端） | 上传/预览/错误定位/确认/取消页面与 `/imports` 路由 |
+| ~~M4 导入（前端）~~ | 已完成（0fa2a63）：上传/预览/错误定位/确认/取消页面与 `/imports` 路由 |
 | M5 行情与收益 | Provider/Adapter、净值行情、快照、已实现/未实现盈亏、XIRR/TWR、回撤 |
 | M6 风险与 Agent | 风险规则、确定性提醒、Agent 只读查询与草稿提案 |
 | 界面审查 | 用户定的流程：产品→UI/UX→前端实现→`impeccable` 审查；审查阶段尚未开始 |
@@ -220,6 +229,6 @@ M  backend/app/transactions/router.py
 
 ## 9. 建议的接手顺序
 
-1. ~~M2 前端闭环~~（b6cccd2）、~~M3 场外基金后端~~（b4ebed5）、~~M3 前端闭环~~（77db678）、~~M4 导入后端~~（5b80ace）。
-2. 下一步：M4 导入前端 → M5 行情/收益 → M6 风险/Agent；或先插入界面审查阶段（`impeccable`）。
+1. ~~M2 前端闭环~~（b6cccd2）、~~M3 场外基金后端~~（b4ebed5）、~~M3 前端闭环~~（77db678）、~~M4 导入后端~~（5b80ace）、~~M4 导入前端~~（0fa2a63）。
+2. 下一步：M5 行情/收益 → M6 风险/Agent；或先插入界面审查阶段（`impeccable`）。
 3. 每次改动后保持：`pytest` 全绿 → `ruff`/`mypy` 干净 → 实测 → 提交。
