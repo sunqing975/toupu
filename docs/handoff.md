@@ -1,11 +1,11 @@
 # 交接文档（HANDOFF）
 
-> 最后更新：2026-11-12。给接手的开发者/Agent 看的工作状态说明。
+> 最后更新：2026-11-13。给接手的开发者/Agent 看的工作状态说明。
 > 开始任何代码修改前，先读 [`agent.md`](agent.md)（最高优先级约束），再读本文。
 
 ## 1. 一句话状态
 
-**M0（骨架）、M1（基础账本）、M2（证券交易）、M3（场外基金：申购/赎回两段式确认 + 分红/红利再投资，前后端整段完成）已提交**：后端 43 passed（M1 19 + M2 7 + M3 17）、ruff/mypy 干净、E2E 实测通过；前端 `tsc`/`vite build` 通过、真实 HTTP 全链路 E2E 通过。之后按 §9 顺序继续 M4 → M5 → M6 + 界面审查。
+**M0（骨架）、M1（基础账本）、M2（证券交易）、M3（场外基金：申购/赎回两段式确认 + 分红/红利再投资，前后端整段完成）、M4（导入与期初资产：后端已提交）已完成并提交**：后端 62 passed（M1 19 + M2 7 + M3 17 + M4 19）、ruff/mypy 干净、M4 真实 HTTP E2E 通过；前端 `tsc`/`vite build` 通过、真实 HTTP 全链路 E2E 通过。M4 前端未做，之后按 §9 顺序继续 M4 前端 → M5 → M6 + 界面审查。
 
 ## 2. 项目定位（摘要，详见 agent.md / README）
 
@@ -24,8 +24,8 @@
 
 ```
 backend/          FastAPI + SQLAlchemy 2.x + Alembic + pytest
-  app/{accounts,instruments,transactions,executions,positions,funds,ledger,audit,core,db}
-  alembic/versions/   0001 基线(13表) … 0004 instrument_id … 0005 line_no … 0006 基金字段/lot_origin
+  app/{accounts,instruments,transactions,executions,positions,funds,imports,opening_balances,ledger,audit,core,db}
+  alembic/versions/   0001 基线(13表) … 0004 instrument_id … 0005 line_no … 0006 基金字段/lot_origin … 0007 导入表/期初明细
   tests/
 frontend/         React 19 + TS + Vite（视觉约束见根目录 frontend-design.md）
 docs/             产品/领域/账务/数据库/实施计划/页面规格
@@ -66,7 +66,8 @@ uv run mypy app
 | `03071d8` | **M2 证券交易**：成交明细、移动加权平均成本、持仓查询、已实现损益、买入冲正、0005 分录行序 + 26 测试 |
 | `b6cccd2` | **M2 前端闭环**：交易页证券录入（证券买卖 + 成交明细 + 品种选择）+ 持仓页接 `/api/v1/positions` |
 | `b4ebed5` | **M3 后端**：申购/赎回两段式确认（净值/份额/费用守恒）、现金分红、红利再投资、FUND/DIVIDEND_REINVEST 批次、0006 迁移、17 测试 |
-| 本次提交 | **M3 前端闭环**：基金申请/确认录入页（守恒即时校验）、详情分录展示、`/funds` 路由与导航 |
+| `77db678` | **M3 前端闭环**：基金申请/确认录入页（守恒即时校验）、详情分录展示、`/funds` 路由与导航 |
+| `5b80ace` | **M4 后端**：CSV/Excel 上传预览/校验/去重、人工确认单事务过账、OPENING_BALANCE 处理器与期初汇总批次、0007 迁移（含模板种子）、19 测试 |
 | `272bab8` | 前端 v0.1：设计令牌（亮/暗）、应用壳导航、总览/账户/品种页（真实 API）、占位页、Toast/Dialog/徽标/骨架屏 |
 | `480e547`、`12d73bc` | UI 文案去行话（「标的」→「投资品种」）；账户类型收紧为券商/基金平台（迁移 0002）；开发模式改本地进程 |
 | `41f3e22` | 产品三件套（product/user-flow/page-spec）+ frontend-design.md |
@@ -81,7 +82,9 @@ uv run mypy app
 - 审计：confirm/post/reverse/cancel 写 `audit_logs`。
 - 统一错误体 `{"error": {code, message}}`，`BusinessError` 全局 handler（默认 409）。
 - 证券：股票/ETF 买入卖出（可多笔成交）、费用、持仓批次与移动加权平均成本、部分卖出、已实现盈亏、`GET /api/v1/positions`。
-- 前端：账户、品种、交易三个功能页 + 总览，Swiss 极简，信任蓝 `#1E40AF`，红涨绿跌，tabular-nums。
+- 场外基金：`/api/v1/funds/orders` 两段式申购/赎回确认、现金分红、红利再投资、FUND/DIVIDEND_REINVEST 批次。
+- 导入与期初资产：`/api/v1/imports`（模板/批次上传/预览/确认/取消），OPENING_BALANCE 期初现金与期初持仓（期初汇总批次，不伪造成交）。
+- 前端：账户、品种、交易、基金四个功能页 + 持仓页 + 总览，Swiss 极简，信任蓝 `#1E40AF`，红涨绿跌，tabular-nums。
 
 ## 5. M2（证券交易）后端 —— 已全绿，已提交（03071d8）
 
@@ -165,6 +168,33 @@ M  backend/app/transactions/router.py
 - `frontend/src/App.tsx`：加 `Landmark` 图标 + NAV「基金」项 + `/funds` 路由。
 - 验收：`npx tsc --noEmit` = 0，`npx vite build` = 0（2127 modules）；`/tmp/m3_fe_e2e.py` 按前端真实请求形状（含 `memo:null`、`platform`、通用 `/post`/`/reverse`、现金分红不确认）真实 HTTP 全链路通过。
 
+## 6.7 M4 导入与期初资产实现口径（5b80ace）—— 详见 docs/ledger-rules.md §16
+
+账务语义先落文档（agent.md §10）：`docs/ledger-rules.md` 追加 §16，再写代码。
+
+**状态机**（agent.md §7）：上传 → 原始行保存 → 解析/标准化 → 校验 → 重复检测 → 预览 → 人工确认 → 正式入账。上传只写 `import_batches`/`import_records`（`raw`/`raw_headers` JSONB 原样保留），**绝不直接写正式账本**；只有 `/confirm` 才建 `OPENING_BALANCE` 并过账，整批单事务原子化（任一行失败整批回滚、`db.rollback()`）。批次 `DRAFT → CONFIRMED|CANCELLED`，`CONFIRMED` 后重复确认幂等直接返回。
+
+**去重**：文件级 SHA-256（同模板同 hash 且非 CANCELLED → 409「该文件已导入过」）；业务级 `dedup_key`（`external_id` 优先，否则 `OB|CASH|…` / `OB|POS|…`，金额数量先 `quantize(0.000001)` 再拼）；三路查重（批次内 + 已确认批次 IMPORTED 行 + `investment_transactions.idempotency_key`）标 `DUPLICATE`，确认只过账 `VALID`；`idempotency_key="import:"+sha256(dedup_key)` 兜底（列 VARCHAR(100)）。
+
+**期初分录**（`app/opening_balances/handlers.py`，与证券/基金处理器分离，复用 `get_or_create_external` 的 OPENING_BALANCE 平衡科目）：期初不是历史买入、不产生现金流出、不伪造成交日期、不记为 DEPOSIT。
+
+| 行类型 | 借方 | 贷方 | 持仓批次 | `total_amount` |
+|---|---|---|---|---|
+| `CASH` | 现金 = 金额 | 外部资金平衡（OPENING_BALANCE 科目） | 无 | 金额 |
+| `POSITION` | 证券 = 账面成本 | 外部资金平衡 | `lot_origin=OPENING_BALANCE`，`open_date=business_date`，`unit_cost=total_cost/quantity` 服务端推导 | 账面成本 |
+
+`cost_source`/`valuation_date`/`row_kind`/`quantity`/`total_cost` 存 `opening_balance_details`。冲正：方向翻转；POSITION 行校验批次未被消耗后删批次，CASH 行无批次直接冲正（`_needs_lot_check` 按明细 `row_kind` 判断，不能盲并 `LOT_OPENING_TYPES`）。
+
+**错误定位**：每条 `{row_no, field, message}`（表头第 1 行、首数据第 2 行）；必填列缺失/行类型非法/金额非正/日期错误/账户不存在/品种(market+code)不存在均给中文原因。有 `ERROR` 行整批拒绝确认（409）；`DUPLICATE` 跳过不阻止；至少 1 条 `VALID`。支持 CSV（utf-8-sig/gbk）与 Excel(.xlsx/.xlsm，openpyxl)，本版仅 OPENING_BALANCE 模板。
+
+**API**：`GET /api/v1/imports/template`、`POST/GET /api/v1/imports/batches`（multipart `file`）、`GET /api/v1/imports/batches/{id}`、`POST /api/v1/imports/batches/{id}/confirm|cancel`。模板/13 字段映射由 0007 迁移种子写入，空库可直接导入。通用交易端点拒绝 `OPENING_BALANCE`（`TxnType` 仅 7 种 → 422）。
+
+**迁移 0007**：`import_templates`、`import_field_mappings`、`import_batches`（部分唯一索引 `uq_import_batches_file`）、`import_records`、`opening_balance_details`。
+
+**验收**：`tests/test_imports.py` 19 个测试（预览不写账本/期初分录与批次/六位精度/中文别名/Excel/错误定位/修正重传/缺列/空文件与非法扩展名/通用端点护栏/业务键去重/文件哈希去重/跨批次去重/确认幂等/整批回滚/取消重传/现金与持仓冲正/已消耗批次拒绝/列表详情 404），全量 **62 passed**；ruff check/format、mypy（openpyxl 用 `[[tool.mypy.overrides]] ignore_missing_imports`）干净；`/tmp/m4_e2e.py` 真实 HTTP 全链路通过（含六位精度 `24.988256`、重复确认幂等、同文件 409）。
+
+**踩坑**：① 0007 用 `op.execute` 原生 DDL，`ImportFieldMapping` ORM 多写了 `created_at` 导致 `UndefinedColumn` 500 → ORM 必须逐列对齐 DDL；② `autoflush=False` 下 `OpeningBalanceDetail` 必须先 `db.flush()` 再 `post_transaction`，否则处理器查不到明细报「期初交易缺少明细」。
+
 ## 7. 还没做
 
 | 事项 | 说明 |
@@ -172,8 +202,9 @@ M  backend/app/transactions/router.py
 | ~~持仓页前端~~ | 已完成（b6cccd2） |
 | ~~交易页支持证券录入~~ | 已完成（b6cccd2）：证券买卖 + 成交明细 + 品种选择 |
 | ~~M3 场外基金（后端）~~ | 已完成（b4ebed5）：两段式申购/赎回 + 确认守恒 + 现金分红 + 红利再投资 + 17 测试 |
-| ~~M3 场外基金（前端）~~ | 已完成（本次提交）：`/funds` 申请/确认页 + 守恒校验 + 分录详情 |
-| M4 导入 | CSV/Excel、字段映射、去重、预览确认、期初资产 |
+| ~~M3 场外基金（前端）~~ | 已完成（77db678）：`/funds` 申请/确认页 + 守恒校验 + 分录详情 |
+| ~~M4 导入（后端）~~ | 已完成（5b80ace）：CSV/Excel、字段映射、去重、预览确认、期初资产 + 19 测试 |
+| M4 导入（前端） | 上传/预览/错误定位/确认/取消页面与 `/imports` 路由 |
 | M5 行情与收益 | Provider/Adapter、净值行情、快照、已实现/未实现盈亏、XIRR/TWR、回撤 |
 | M6 风险与 Agent | 风险规则、确定性提醒、Agent 只读查询与草稿提案 |
 | 界面审查 | 用户定的流程：产品→UI/UX→前端实现→`impeccable` 审查；审查阶段尚未开始 |
@@ -189,6 +220,6 @@ M  backend/app/transactions/router.py
 
 ## 9. 建议的接手顺序
 
-1. ~~M2 前端闭环~~（已完成 b6cccd2）、~~M3 场外基金后端~~（已完成 b4ebed5）、~~M3 前端闭环~~（已完成本次提交）。
-2. 下一步：按里程碑 M4 导入 → M5 行情/收益 → M6 风险/Agent；或先插入界面审查阶段（`impeccable`）。
+1. ~~M2 前端闭环~~（b6cccd2）、~~M3 场外基金后端~~（b4ebed5）、~~M3 前端闭环~~（77db678）、~~M4 导入后端~~（5b80ace）。
+2. 下一步：M4 导入前端 → M5 行情/收益 → M6 风险/Agent；或先插入界面审查阶段（`impeccable`）。
 3. 每次改动后保持：`pytest` 全绿 → `ruff`/`mypy` 干净 → 实测 → 提交。
