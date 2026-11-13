@@ -30,12 +30,18 @@ type ImpactView = {
   impact?: string
 }
 
+const CURRENCY_SYMBOL: Record<string, string> = { CNY: "¥" }
+
+function currencySymbol(currency?: string): string {
+  return (currency && CURRENCY_SYMBOL[currency]) || currency || "¥"
+}
+
 function proposalTitle(p: Proposal): string {
   const payload = p.payload as ProposalView
   const impact = p.impact_preview as ImpactView
   const label = TXN_LABELS[payload.transaction_type ?? ""] ?? payload.transaction_type ?? "交易"
   const amount = impact.amount ?? payload.amount
-  return `${impact.asset ?? ""} · ${label}${amount ? ` ¥${fmtAmount(amount)}` : ""}`
+  return `${impact.asset ?? ""} · ${label}${amount ? ` ${currencySymbol(impact.currency)} ${fmtAmount(amount)}` : ""}`
 }
 
 export function Plans() {

@@ -26,6 +26,7 @@ import { Risk } from "./pages/Risk"
 import { Plans } from "./pages/Plans"
 import { Placeholder } from "./pages/Placeholder"
 
+
 const NAV = [
   { to: "/", label: "总览", icon: LayoutDashboard, title: "总览" },
   { to: "/positions", label: "持仓", icon: ChartPie, title: "持仓" },
@@ -85,11 +86,11 @@ export default function App() {
         <Route path="/market" element={<Market />} />
         <Route path="/risk" element={<Risk />} />
         <Route path="/plans" element={<Plans />} />
-        <Route path="/ledger" element={<Placeholder milestone="M1" description="复式记账分录流水，只读" />} />
+        <Route path="/ledger" element={<Placeholder title="账本" description="复式记账分录流水（只读）" />} />
         <Route path="/imports" element={<Imports />} />
         <Route path="/accounts" element={<Accounts />} />
         <Route path="/instruments" element={<Instruments />} />
-        <Route path="/settings" element={<Placeholder milestone="M6" description="风险规则、Agent Token 与通知" />} />
+        <Route path="/settings" element={<Placeholder title="设置" description="风险规则、Agent Token 与通知" />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

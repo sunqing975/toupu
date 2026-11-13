@@ -40,6 +40,14 @@ button {
   font-variant-numeric: tabular-nums;
 }
 
+.num--up {
+  color: var(--color-up);
+}
+
+.num--down {
+  color: var(--color-down);
+}
+
 /* ---------- 应用壳 ---------- */
 
 .shell {
@@ -247,6 +255,16 @@ button {
 
 .btn--secondary:hover:not(:disabled) {
   border-color: var(--color-muted-foreground);
+}
+
+.btn--ghost {
+  border-color: transparent;
+  color: var(--color-muted-foreground);
+}
+
+.btn--ghost:hover:not(:disabled) {
+  background: var(--color-background);
+  color: var(--color-foreground);
 }
 
 .btn--destructive {

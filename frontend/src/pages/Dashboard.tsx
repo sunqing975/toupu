@@ -4,6 +4,7 @@ import { Wallet, ArrowLeftRight, PieChart } from "lucide-react"
 import { accountsApi } from "../api/accounts"
 import { instrumentsApi } from "../api/instruments"
 import { TXN_TYPE_LABELS, fmtAmount, transactionsApi, type Txn } from "../api/transactions"
+import { marketApi, type SummaryOut } from "../api/market"
 import type { Instrument, InvestmentAccount } from "../api/types"
 import { EmptyState } from "../components/EmptyState"
 import { Skeleton } from "../components/Skeleton"
@@ -14,16 +15,21 @@ export function Dashboard() {
   const [accounts, setAccounts] = useState<InvestmentAccount[] | null>(null)
   const [instruments, setInstruments] = useState<Instrument[] | null>(null)
   const [recent, setRecent] = useState<Txn[] | null>(null)
+  const [summary, setSummary] = useState<SummaryOut | null>(null)
 
   useEffect(() => {
     accountsApi.list().then(setAccounts).catch(() => setAccounts([]))
     instrumentsApi.list().then(setInstruments).catch(() => setInstruments([]))
     transactionsApi.list().then(setRecent).catch(() => setRecent([]))
+    marketApi.summary(new Date().toISOString().slice(0, 10)).then(setSummary).catch(() => setSummary(null))
   }, [])
 
   const todoCount = (recent ?? []).filter((t) => t.status === "DRAFT" || t.status === "CONFIRMED").length
 
   const noAccounts = accounts !== null && accounts.length === 0
+
+  const pnl = summary ? Number(summary.realized_total) + Number(summary.unrealized_total) : null
+  const pnlClass = pnl === null ? "card__value num" : pnl >= 0 ? "card__value num num--up" : "card__value num num--down"
 
   return (
     <div className="page">
@@ -51,23 +57,23 @@ export function Dashboard() {
           <div className="stat-grid">
             <div className="card">
               <div className="card__title">总资产</div>
-              <div className="card__value num">—</div>
-              <div className="card__hint">随 M1 账本上线</div>
+              <div className="card__value num">{summary ? fmtAmount(summary.total_assets) : "—"}</div>
+              {summary?.data_quality && summary.data_quality !== "COMPLETE" && (
+                <div className="card__hint">部分持仓缺少报价，市值为估值</div>
+              )}
             </div>
             <div className="card">
               <div className="card__title">现金合计</div>
-              <div className="card__value num">—</div>
-              <div className="card__hint">随 M1 账本上线</div>
+              <div className="card__value num">{summary ? fmtAmount(summary.cash_total) : "—"}</div>
             </div>
             <div className="card">
               <div className="card__title">持仓市值</div>
-              <div className="card__value num">—</div>
-              <div className="card__hint">随 M2 持仓上线</div>
+              <div className="card__value num">{summary ? fmtAmount(summary.market_value) : "—"}</div>
             </div>
             <div className="card">
               <div className="card__title">累计盈亏</div>
-              <div className="card__value num">—</div>
-              <div className="card__hint">随 M2 成本核算上线</div>
+              <div className={pnlClass}>{pnl !== null ? fmtAmount(pnl.toString()) : "—"}</div>
+              <div className="card__hint">已实现 + 未实现</div>
             </div>
           </div>
 
@@ -123,7 +129,7 @@ export function Dashboard() {
                   </li>
                   <li style={{ padding: "var(--space-2) 0", color: "var(--color-muted-foreground)" }}>
                     <PieChart size={14} aria-hidden style={{ verticalAlign: "-2px", marginRight: 6 }} />
-                    持仓构成图随 M5 上线
+                    {summary ? `持仓 ${summary.valued_positions}/${summary.total_positions} 已估值` : "持仓构成待行情"}
                   </li>
                 </ul>
               )}

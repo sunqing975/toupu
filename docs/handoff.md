@@ -5,7 +5,7 @@
 
 ## 1. 一句话状态
 
-**M0~M6 前后端整段完成并提交**：后端 **121 passed**（M1 19 + M2 7 + M3 17 + M4 19 + M5 27 + M6 32）、ruff/mypy 干净；M6 真实 HTTP E2E **36 断言通过**；前端 `tsc`/`vite build` 通过（2134 modules）。剩余：界面审查阶段（`impeccable`）、账本页与设置页仍为占位。
+**M0~M6 前后端整段完成并提交**：后端 **121 passed**（M1 19 + M2 7 + M3 17 + M4 19 + M5 27 + M6 32）、ruff/mypy 干净；M6 真实 HTTP E2E **36 断言通过**；前端 `tsc`/`vite build` 通过（2134 modules）；**界面审查阶段（`impeccable`）已完成**（P0 `.btn--ghost` 缺失样式、P1 仪表盘真实数据、P1 占位诚实化、P3 货币符号）。剩余：账本页/设置页为诚实空态占位（可选落地）。
 
 ## 2. 项目定位（摘要，详见 agent.md / README）
 
@@ -264,6 +264,16 @@ M  backend/app/transactions/router.py
 - **E2E 抓到的测试脆弱点（已修）**：`test_reverse_flow` 依赖「最近 100 条已入账交易」找冲正单，数据积累后被截断；改为按 `account_id` 过滤。
 - 验收：真实 HTTP 脚本 `.../m6_fe_e2e.py` **36 断言**：规则创建/组合校验/不可改字段/有效 PATCH、扫描触发与同日幂等、事件确认与重复 409、Token 明文不回显/无 Token 401/缺 scope 403、只读网关、提案非法类型 422、审批只生成 DRAFT（`entry is null`）且重复审批 409、拒绝留痕、计划条目与归档 409、吊销后 401。
 
+## 6.13 界面审查（`impeccable`，本次提交）
+
+- 用 `impeccable` 技能对 `frontend/src` 做 Operate 模式审查（单上下文降级：本会话无 spawn_agent、二进制下载挂起、无浏览器截图工具）。设计健康初评 Acceptable（24/40）。修复项：
+  - **P0 `.btn--ghost` 缺失样式**：原 `global.css` 未定义该类，但 Risk/Plans/Market/Dialog 共 9 处引用（标签切换、弹窗关闭 X、忽略/拒绝/归档按钮）→ 渲染成无边框纯文本，与 bordered 按钮不一致、点击可发现性差。已补 `.btn--ghost`（透明边框 + 静音色，hover 反白底色）。
+  - **P1 仪表盘真实数据**：`Dashboard.tsx` 四个 stat-grid 卡片原硬编码 `—` + 「随 M1/M2 上线」提示，但 M1/M2/M5 早已完成。改为调 `marketApi.summary(as_of=今天)` 取真实「总资产/现金合计/持仓市值/累计盈亏（已实现+未实现，红绿着色）」；缺报价时显示「市值为估值」提示；账户/品种卡改为展示「持仓 X/Y 已估值」。
+  - **P1 占位诚实化**：`/ledger`、`/settings` 原 `Placeholder milestone="M1"/"M6"` 显示「随 X 里程碑上线」，但后端 M1/M6 已完成、只是前端页面未做 → 误导。改为传 `title`/`description`，文案改为「此前端页面尚未实现，相关功能可从其它入口或 API 访问」（不伪装里程碑状态）。
+  - **P3 货币符号**：`Plans.tsx` 提案标题硬编码 `¥${amount}`，但 impact_preview 含 `currency` 字段。改为按 `impact.currency` 取符号（CNY→¥），未带则回退 ¥。Funds/Transactions 的 CNY 特定展示保留（场外基金/证券交易均为人民币域）。
+  - **P2 帮助引导**：Risk/Plans 已有页面级微文案（确定性规则/缺失不伪装、Agent 只建提案不入账、计划不触发账务）；EmptyState 已覆盖首次使用引导，无需新增 tooltip 组件。
+- 验收：`npx tsc --noEmit` 退出 0；`npx vite build` 退出 0（2134 modules，dist 397.97 kB）。
+
 ## 7. 还没做
 
 | 事项 | 说明 |
@@ -277,10 +287,11 @@ M  backend/app/transactions/router.py
 | ~~M5 行情与收益（后端）~~ | 已完成（d93ce0c）：MANUAL 行情/净值、双口径派生、XIRR/TWR/MDD、快照幂等重建 + 27 测试 |
 | ~~M5 行情与收益（前端）~~ | 已完成（95d2984）：`/market` 估值明细/行情净值录入/快照重建/收益指标卡 |
 | ~~M6 风险与 Agent（后端）~~ | 已完成（21efd98）：风险规则/扫描/事件、Agent Token/只读网关、提案审批只生成 DRAFT、轻量计划 + 32 测试 |
-| ~~M6 前端~~ | 已完成（本次提交）：`/risk` 事件与规则管理、`/plans` 提案审批与投资计划 |
-| 账本页 `/ledger` | 仍为占位；后端无只读分录列表接口（可从 transactions detail 取，或新增 `GET /ledger/entries`） |
-| 设置页 `/settings` | 仍为占位；页面规格要求放风险规则与 Agent Token 管理（当前规则在 `/risk`，Token 无前端） |
-| 界面审查 | 用户定的流程：产品→UI/UX→前端实现→`impeccable` 审查；审查阶段尚未开始 |
+| ~~M6 前端~~ | 已完成（4e8b431）：`/risk` 事件与规则管理、`/plans` 提案审批与投资计划 |
+| ~~界面审查~~ | 已完成（本次提交）：impeccable Operate 审查 + P0/P1/P3 修复 + tsc/build 通过 |
+| 账本页 `/ledger` | 占位（诚实空态）；后端无只读分录列表接口（可从 transactions detail 取，或新增 `GET /ledger/entries`） |
+| 设置页 `/settings` | 占位（诚实空态）；页面规格要求放风险规则与 Agent Token 管理（当前规则在 `/risk`，Token 无前端） |
+| 账本/设置页真正落地 | 可选：补只读分录列表接口 + 前端页面，或 Agent Token 管理前端 |
 
 ## 8. 环境与工具坑（踩过的）
 
@@ -291,9 +302,10 @@ M  backend/app/transactions/router.py
 - **断言不要依赖全表窗口**（如「最近 100 条交易」）：数据会持续累积导致偶发失败，按 `account_id`/`rule_id` 等过滤；`test_reverse_flow` 已因此修过一次。
 - ruff 配置忽略 `B008`（FastAPI `Depends` 模式）。
 - 金额序列化走 `Decimal` → JSON 字符串，测试断言要按 `"2205.000000"` 六位小数写。
+- **impeccable 二进制首次运行会后台下载**：`impeccable context` 在本机会挂起（下载未完成），按技能回退条款直接读项目上下文即可，无需阻塞。
 
 ## 9. 建议的接手顺序
 
-1. ~~M2 前端闭环~~（b6cccd2）、~~M3 场外基金后端~~（b4ebed5）、~~M3 前端闭环~~（77db678）、~~M4 导入后端~~（5b80ace）、~~M4 导入前端~~（0fa2a63）、~~M5 行情与收益后端~~（d93ce0c）、~~M5 前端闭环~~（95d2984）、~~M6 风险/Agent 后端~~（本次提交）。
-2. 下一步：界面审查阶段（`impeccable`）；或补账本页/设置页（Agent Token 管理前端）。
+1. ~~M2 前端闭环~~（b6cccd2）、~~M3 场外基金后端~~（b4ebed5）、~~M3 前端闭环~~（77db678）、~~M4 导入后端~~（5b80ace）、~~M4 导入前端~~（0fa2a63）、~~M5 行情与收益后端~~（d93ce0c）、~~M5 前端闭环~~（95d2984）、~~M6 风险/Agent 后端~~（21efd98）、~~M6 前端~~（4e8b431）、~~界面审查~~（本次提交）。
+2. 可选下一步：补账本/设置页（Agent Token 管理前端），或新增只读分录列表接口。
 3. 每次改动后保持：`pytest` 全绿 → `ruff`/`mypy` 干净 → 实测 → 提交。
