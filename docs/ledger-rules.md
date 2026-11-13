@@ -235,3 +235,104 @@
 - 支持 CSV 与 Excel(.xlsx)；模板与字段映射由 `import_templates` / `import_field_mappings` 定义，首次使用时惰性初始化（迁移可从空库执行）。
 - Agent 不得调用导入确认接口（agent.md §8 写操作先 proposal/draft）；导入 API 不暴露给 Agent 自动调用。
 - 期初余额是「起始账面余额」而非外部现金流；XIRR/TWR 按 §12 口径处理，本版不实现指标，仅保留口径说明。
+
+## 17. M5 行情与收益实现口径（第一版）
+
+> 依据 agent.md §6/§10、ledger-rules §12/§13、implementation-plan M5、architecture §5。
+> **先定义公式与人工基准，再实现代码**；本版不接入外部 SaaS，不伪装实时行情。
+
+### 17.1 范围与不可违反项
+
+- 数据源走 `market_data` 模块的 Provider/Adapter 接口（`get_quote` / `get_fund_nav` / `get_daily_history`）；业务模块只依赖标准化结果，**不直接依赖第三方 SDK**（architecture §5）。第一版只提供 `MANUAL` Provider（用户/运维显式录入行情，带来源与质量标记），预留可替换接口。
+- 行情是**估值输入，不是交易事实**：账本成交价永远保存原始成交价，行情不得覆盖账本（§13、architecture §4）。
+- 基金正式净值与盘中估值明确区分（`data_type=OFFICIAL|ESTIMATED`）；**盘中估值不得覆盖正式净值，也不得当作正式净值用于估值**。
+- 每条行情保留：供应商、供应商原始代码、采集时间、市场时间、数据类型、延迟/估值标记、复权类型、质量状态（§13、architecture §5）。
+- 快照是**可删除重建的派生结果**，必须能从已过账账本事件重建；不得把快照当事实来源（agent.md §1、database-design §3）。
+- **行情缺失/过期不伪装成实时**：估值接口返回 `UNKNOWN`/`STALE` 状态并列出缺失标的；收益指标在估值覆盖不全时返回 `INSUFFICIENT_DATA`，不得静默用旧值或 0 代替。
+
+### 17.2 账本派生口径（快照/盈亏的唯一来源）
+
+方向约定 `DEBIT=+`、`CREDIT=−`（资产/费用类）或对收入类取反；金额一律 `Decimal`，中间值不提前量化，输出按 §14 六位小数。**快照记录的是「重建时点的当前账面余额」**，用当天重建得到的实时余额加上 `snapshot_date` 标签保存；以后查询历史指标直接读已保存的快照序列，**不回放历史账本**。
+
+- 现金账面余额 `cash(account)` = Σ 该账户 `CASH` 科目全部分录行的 `DEBIT − CREDIT`（`journal_lines` join `journal_entries`/`ledger_accounts`；冲正分录方向已翻转，故自动抵消）。
+- 持仓数量 `quantity(account, instrument)` = Σ `position_lots.remaining_quantity > 0` 的 `remaining_quantity`（与 `/api/v1/positions` 同源）。
+- 持仓账面成本 `book_cost(account, instrument)` = Σ 同源批次的 `total_cost`。**双口径交叉校验**：另算 `SECURITY` 科目分录行的 `DEBIT − CREDIT`；二者不一致时 `rebuild` 整批报错（不多写、不静默取其一），因为这说明批次轨迹与账本分录脱节。
+- 已实现盈亏 `realized` = Σ `REALIZED_GAIN` 科目 `CREDIT` − Σ `REALIZED_LOSS` 科目 `DEBIT`（全量累计，冲正已抵消）。
+- 现金分红收入 `dividend_income` = Σ `DIVIDEND_INCOME` 科目 `CREDIT`（单独统计，不并入已实现盈亏）。
+- 市场价值 `market_value` = `quantity × 有效报价`；未实现盈亏 `unrealized = market_value − book_cost`。**仅对有有效报价的持仓计入**；无报价持仓单独列 `UNKNOWN`，并从 `market_value`/`unrealized` 合计中排除（同时给出覆盖率 `coverage = 已估值持仓数 / 全部持仓数`）。
+- 总资产 `total_assets = Σ cash + Σ market_value(已估值)`；`OPENING_BALANCE` 期初行是起始账面余额，已通过上述科目余额体现，不重复计。
+
+**第一版边界（不猜测）**：`position_lots` 的批次在部分卖出时会删除已清空批次、清仓时只清零不写 disposal，因此**无法从批次/处置明细可靠重建任意历史日的数量**。故 v1 的 `rebuild` 只按当前实时余额生成快照，`snapshot_date` 是保存标签而非历史回放参数；历史某日的账面余额如需精确回溯，未来须引入时序账本视图，本版明确不支持、不伪造。XIRR 的现金流来自不可变的 `investment_transactions`（含 `business_date`，天然可回溯），期末估值取当前总资产；TWR/MDD 取已保存的 `portfolio_snapshots` 序列，缺估值点即 `INSUFFICIENT_DATA`。
+
+### 17.3 外部现金流边界（XIRR/TWR 的关键）
+
+按 `investment_transactions.transaction_type` 判定，**账户间转账 `ACCOUNT_TRANSFER` 是组合内部转账，绝不作为外部现金流**（§9）：
+
+| 交易类型 | 是否外部现金流 | 说明 |
+|---|---|---|
+| `DEPOSIT` | 是，流出投资者 | 现金流入组合 |
+| `WITHDRAW` | 是，流入投资者 | 现金流出组合 |
+| `OPENING_BALANCE` | **期初资本基数** | 起始账面余额，按 §17.4 作为期初投入 |
+| `ACCOUNT_TRANSFER` | 否 | 内部转账，组合层面抵消 |
+| 证券买卖 / 基金申赎 / 分红 / 再投资 / 费用 | 否 | 组合内部资产形态变化或投资回报，不属外部资金流 |
+
+现金分红 `CASH_DIVIDEND` 增加组合现金、已包含在期末估值中，**不再单列为外部现金流**（避免重复计算）；红利再投资同理。
+
+### 17.4 XIRR（含正负号约定与缺失处理）
+
+- 采用**投资者视角**：投入组合为负、收回为正。
+  `DEPOSIT` → `CF = −amount`；`WITHDRAW` → `CF = +amount`；`OPENING_BALANCE` → 在期初日按 `CF = −期初账面净值`（期初资本基数，含期初现金 + 期初持仓成本）；期末追加 `CF_T = +V_T`（`V_T` = as_of 总资产，须估值覆盖完整）。
+- 方程（实际天数/365，无复利年化假设歧义）：
+
+  ```
+  NPV(r) = Σ_i CF_i / (1 + r)^((d_i − d_0)/365) = 0
+  ```
+
+  其中 `d_0` 为最早现金流日期，`d_T = as_of`，`CF_T = V_T`。
+- 求解：在 `r ∈ (−0.9999, 10]` 上二分 200 次、`|NPV| < 1e-10` 收敛；若 `NPV(−0.9999)` 与 `NPV(10)` 同号（无解/多解歧义）则返回 `None` 并标注原因，不猜测。
+- 现金流按日期聚合（同日多笔先合并）；**估值覆盖不全（`coverage < 1`）或缺少期初资本基数时返回 `INSUFFICIENT_DATA`**，不输出看似合理的数字。
+- 人工基准（测试必须复现；日期严格取 365 天整倍数，使指数恰为整数）：
+  - 基准 A：`CF_0 = −100000 @ 2026-01-01`，`V_T = +110000 @ 2027-01-01`（恰 365 天）→ `r = 0.100000`（精确，`−100000 + 110000/1.1 = 0`）。
+  - 基准 B：`CF_0 = −100000 @ 2026-01-01`，`+50000 @ 2027-01-01`（第 365 天），`V_T = +66000 @ 2028-01-01`（第 730 天）→ `r = 0.100000`（`−100000 + 50000/1.1 + 66000/1.21 = 0`）。
+  - 基准 C（无解）：`CF_0 = −100000`，`V_T = −5000`（期末为负、所有现金流同号）→ `NO_SOLUTION`，不强行输出数字。
+
+### 17.5 TWR（外部现金流切分子期间）
+
+- 按每个外部现金流发生点把区间切成子期间；`V_{i-1}` = 上一现金流后（或期初）的组合估值，`V_i^-` = 本次现金流**发生前瞬间**的组合估值，本次净外部流入 `F_i`。
+- 子期间收益 `r_i = V_i^- / V_{i-1} − 1`；现金流后 `V_i = V_i^- + F_i`；连乘：
+
+  ```
+  TWR = Π_i (1 + r_i) − 1
+  ```
+
+- **输入契约（可实现的确定约定）**：`TWR` 基于已保存的 `portfolio_snapshots` 序列（按 `snapshot_date` 升序）和不可变外部现金流表计算。对每个现金流日期 `d_i`，要求存在 `snapshot_date <= d_i` 的最近快照作为 `V_i^-`（现金流前瞬间估值）；`V_0` 取序列首个快照；`as_of` 当天必须有快照作为 `V_T^-`。`F_i = −CF_i`（与 §17.4 正负号相反：外部流入为正）。流后 `V_i = V_i^- + F_i` 作为下一子期间起点。任一子期间缺估值快照、或 `V_{i-1} <= 0` → `INSUFFICIENT_DATA` 并列出缺失日期，不跳过、不插值、不猜测。
+- 人工基准（纯函数 `twr(points, flows)`，points 为 `(日期, 估值)`）：
+  `points = [(2026-01-01,100000), (2026-06-30,110000), (2026-12-31,143000)]`，
+  `flows = [(2026-06-30, +20000)]`（外部流入 20000），`as_of=2026-12-31`。
+  子期间 1：`V_1^-=110000 / V_0=100000 → r_1=0.1`，流后 `V_1=130000`；
+  子期间 2：`V_T^-=143000 / V_1=130000 → r_2=0.1`；`TWR = 1.1×1.1 − 1 = 0.210000`。
+  另一基准（无现金流）：`points=[(2026-01-01,100000),(2026-12-31,115000)], flows=[]` → `TWR=0.150000`。
+
+### 17.6 最大回撤
+
+- 基于**统一频率、同一估值口径**的组合净值序列 `V_t`（本版取已保存的 `portfolio_snapshots`，按 `snapshot_date` 升序）。
+- `MDD = min_t ( V_t / max_{s<=t} V_s − 1 )`，返回非正数与谷/峰日期；序列少于 2 点 → `INSUFFICIENT_DATA`。
+- 人工基准：序列 `[100, 120, 90, 150, 120]` → 运行峰值 `[100,120,120,150,150]`，逐点回撤 `[0,0,−0.25,0,−0.2]` → `MDD = −0.250000`（峰 120 → 谷 90）。
+
+### 17.7 快照生成（幂等、可重建）
+
+- `POST /api/v1/snapshots/rebuild?snapshot_date=YYYY-MM-DD` 按 §17.2 派生当日 `position_snapshots`（逐账户×品种：数量/账面成本/报价/市值/未实现/报价状态）与一条 `portfolio_snapshots`（现金/市值/总资产/累计已实现/累计分红/覆盖率/数据质量）。
+- 同一日期重复 rebuild **先删后建、结果幂等**（快照不是事实，可删除重建，database-design §3）；生成不写账本、不改交易/批次。
+- 报价选取：优先 `OFFICIAL` 且 `quality_status=FRESH` 且 `quote_date<=as_of` 的最新一条；`ESTIMATED` 仅作展示、不用于估值；超过 `stale_days`（默认 7）标记 `STALE`；无报价 → `UNKNOWN`。
+- 复权类型本版只接受 `NONE`（账本成交价保持原始价，历史收益口径明确为未复权，§13）；如将来引入前/后复权必须先补文档与基准。
+
+### 17.8 API 与表
+
+- `market_data`：`POST/GET /api/v1/market/quotes`（股票/ETF 日行情）、`POST/GET /api/v1/market/navs`（基金净值），入参强制带 `provider`、`data_type`、`quality_status`；`GET /api/v1/market/valuation?as_of=` 返回覆盖状态。
+- `performance`：`GET /api/v1/performance/summary?as_of=`（现金/市值/总资产/已实现/未实现/分红/覆盖率/数据质量）、`GET /api/v1/performance/returns`（XIRR/TWR/MDD，含 `status` 与 `missing` 明细）。
+- `POST /api/v1/snapshots/rebuild`、`GET /api/v1/snapshots`。
+- 迁移 0008：`market_quotes`、`fund_nav_history`、`position_snapshots`、`portfolio_snapshots`（均含来源/质量字段与唯一约束），空库可执行。
+
+### 17.9 测试要求（agent.md §9）
+
+正常/边界/幂等/失败回滚/冲正更正/精度六类，且必须有**人工基准测试**：XIRR 基准 A/B、TWR 连乘基准、MDD 序列基准、缺失行情 `INSUFFICIENT_DATA`、快照重复 rebuild 幂等、报价过期 `STALE`、`ESTIMATED` 不用于估值、`ACCOUNT_TRANSFER` 不计入外部现金流、六位小数精度。指标公式未定义或未覆盖估值时**不得输出数字**。

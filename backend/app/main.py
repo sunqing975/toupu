@@ -13,7 +13,10 @@ from app.core.config import get_settings
 from app.funds.router import router as funds_router
 from app.imports.router import router as imports_router
 from app.instruments.router import router as instruments_router
+from app.market_data.router import router as market_data_router
+from app.performance.router import router as performance_router
 from app.positions.router import router as positions_router
+from app.snapshots.router import router as snapshots_router
 from app.transactions.router import router as transactions_router
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -43,6 +46,9 @@ def create_app() -> FastAPI:
     app.include_router(funds_router)
     app.include_router(imports_router)
     app.include_router(positions_router)
+    app.include_router(market_data_router)
+    app.include_router(performance_router)
+    app.include_router(snapshots_router)
 
     @app.get("/health")
     def health() -> dict:
