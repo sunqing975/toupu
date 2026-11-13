@@ -5,7 +5,9 @@
 
 ## 1. 一句话状态
 
-**M0（骨架）、M1（基础账本）、M2（证券交易）、M3（场外基金）、M4（导入与期初资产）、M5（行情与收益）前后端整段完成并提交**：后端 **89 passed**（M1 19 + M2 7 + M3 17 + M4 19 + M5 27）、ruff/mypy 干净、M5 真实 HTTP E2E 76 断言通过；M5 前端 `tsc`/`vite build` 通过（2131 modules）、按前端请求形状的真实 HTTP E2E 50 断言通过（95d2984）。之后按 §9 顺序继续 M6 风险/Agent + 界面审查。
+**M0~M5 前后端整段完成并提交；M6（风险/Agent/计划）后端已完成、后端全量 120 tests 全绿、ruff/mypy 干净，改动在工作区待提交**。剩余：M6 前端页面（风险/提案/计划）、界面审查。
+
+> 历史：M5 前端 `95d2984`（`tsc`/`vite build` 通过、真实 HTTP E2E 50 断言）；本日增量见 §6.11。
 
 ## 2. 项目定位（摘要，详见 agent.md / README）
 
@@ -73,6 +75,7 @@ uv run mypy app
 | `d93ce0c` | **M5 后端**：MANUAL 行情/净值录入、估值覆盖状态、双口径派生、XIRR/TWR/MDD（Decimal 实现）、快照幂等重建、0008 迁移、27 测试 |
 | `67e7c5b` | 文档：同步 handoff —— M5 后端已完成，新增 §6.9 公式与口径 |
 | `95d2984` | **M5 前端闭环**：行情与收益页（估值明细/行情净值录入/快照重建）+ XIRR/TWR/MDD 指标卡 + `/market` 路由 |
+| 本次提交 | **M6 风险/Agent/计划**：确定性风险引擎与事件（冷却/幂等）+ 规则管理 + Agent Token(sha256)/只读网关/操作审计 + 提案审批只生成 DRAFT + 轻量计划 + 0009 迁移、31 测试 |
 | `272bab8` | 前端 v0.1：设计令牌（亮/暗）、应用壳导航、总览/账户/品种页（真实 API）、占位页、Toast/Dialog/徽标/骨架屏 |
 | `480e547`、`12d73bc` | UI 文案去行话（「标的」→「投资品种」）；账户类型收紧为券商/基金平台（迁移 0002）；开发模式改本地进程 |
 | `41f3e22` | 产品三件套（product/user-flow/page-spec）+ frontend-design.md |
@@ -90,6 +93,7 @@ uv run mypy app
 - 场外基金：`/api/v1/funds/orders` 两段式申购/赎回确认、现金分红、红利再投资、FUND/DIVIDEND_REINVEST 批次。
 - 导入与期初资产：`/api/v1/imports`（模板/批次上传/预览/确认/取消），OPENING_BALANCE 期初现金与期初持仓（期初汇总批次，不伪造成交）。
 - 行情与收益：`/api/v1/market`（行情/净值录入 + 估值覆盖状态）、`/api/v1/performance`（派生汇总 + XIRR/TWR/MDD 状态）、`/api/v1/snapshots`（幂等重建）；快照是可删除重建的派生结果。前端 `/market` 估值明细/录入/快照重建/收益指标卡。
+- 风险与 Agent：`/api/v1/risk`（规则 CRUD、确定性扫描、事件确认/忽略）、`/api/v1/agent`（Token 管理与只读网关、提案创建）、`/api/v1/plans`（计划/行动项、提案审批/拒绝）；Agent 只读、提案审批只生成 DRAFT 不入账。
 - 功能页（前端）：总览、持仓、交易、基金、行情、导入、账户、投资品种（10 项导航，账本/设置仍为占位）。
 - 前端：账户、品种、交易、基金、导入五个功能页 + 持仓页 + 总览，Swiss 极简，信任蓝 `#1E40AF`，红涨绿跌，tabular-nums。
 
@@ -241,6 +245,17 @@ M  backend/app/transactions/router.py
 - `frontend/src/App.tsx`：lucide 加 `LineChart`、`NAV` 加「行情」项、`/market` 路由接 `<Market />`（原 9 项导航扩为 10 项）。
 - 验收：`npx tsc --noEmit` = 0，`npx vite build` = 0（2131 modules，366.08 kB）；`/tmp/m5_fe_e2e.py` 按前端真实请求形状（字符串金额、`data_type` 显式、`provider_code`、重复 409、FUND nav 限制、rebuild 幂等、staleDays 变体）真实 HTTP **50 断言全通过**。
 
+## 6.11 M6 风险/Agent/计划实现口径（本次提交）—— 详见 docs/risk-agent-rules.md
+
+- 迁移 `0009`：`risk_rules`、`risk_events`（`dedup_key` UNIQUE）、`investment_plans` / `investment_plan_actions`、`agent_tokens`（只存 sha256）、`agent_operations`（只追加审计，失败也留痕）、`operation_proposals`。`gen_random_uuid()`（PG13+ 内置）。
+- 风险引擎 `app/risk/engine.py`：**纯函数**，无 DB/HTTP/随机/LLM，`now` 可注入。合法组合仅 `INSTRUMENT×POSITION_WEIGHT`、`ACCOUNT×ACCOUNT_WEIGHT`、`PORTFOLIO×PORTFOLIO_DRAWDOWN`、`PORTFOLIO×QUOTE_COVERAGE`；阈值 `0<threshold<=1`。无有效报价的持仓**跳过并给出原因**，不当 0 计；总资产非正、无持仓、快照不足均跳过而非硬算。同一 `rule_id|subject|as_of` 幂等（同日重复扫描不重建），冷却时间内的触发跳过。金额/权重六位量化。
+- 风险 API：`POST/GET /api/v1/risk/rules`、`PATCH /rules/{id}`（只能改阈值/级别/开关/冷却/备注，**不能改 scope/rule_type**）、`POST /scan`、`GET /events`、`POST /events/{id}/acknowledge|ignore`。事件只改状态不删除。
+- Agent：`/api/v1/agent/tokens`（创建只返回一次明文、列表/吊销）、只读网关 `/accounts /positions /transactions /quotes /valuation /summary /returns /risk-events /plans /proposals`，统一 `X-Agent-Token` + scope 白名单（9 个 `read:*` / `write:proposals`）。每次调用（含 401/403）写 `agent_operations`；成功更新 `last_used_at`。Agent 对用户写接口（confirm/post 等）无权限，审批接口忽略 Agent Token。
+- 提案：Agent 只能 `POST /agent/proposals` 建 PENDING（只支持现金类 DEPOSIT/WITHDRAW/ACCOUNT_TRANSFER），创建时校验并冻结 `validation_snapshot`/`impact_preview`；过期时间为创建 +24h。用户 `POST /plans/proposals/{id}/approve` 前**重新校验**账户仍存在且名称/类型未变、金额仍 >0；通过后只调用既有 `create_transaction` 生成 **DRAFT**，绝不 confirm/post、不写分录；`reject` 记录原因；重复审批 409，过期置 EXPIRED。
+- 计划：`/api/v1/plans` 轻量决策记录（计划 + 有序行动项），明确不触发任何账务动作。
+- 测试：`tests/test_risk_agent.py` 23 个测试函数 / 31 个用例，覆盖四类规则触发与跳过、无报价不按 0 计、扫描幂等、规则组合与不可变字段、事件确认/重复拒绝、Token 缺失/无效/缺 scope/明文不落库、网关审计、Agent 无法过账、审批只生成 DRAFT、非法载荷不落库、过期/重复审批/拒绝、全部 scope 可读与提案可写。
+- 全量验证：`pytest` **120 passed**、`ruff check/format` 干净、`mypy app` 58 文件无问题。
+
 ## 7. 还没做
 
 | 事项 | 说明 |
@@ -253,7 +268,8 @@ M  backend/app/transactions/router.py
 | ~~M4 导入（前端）~~ | 已完成（0fa2a63）：上传/预览/错误定位/确认/取消页面与 `/imports` 路由 |
 | ~~M5 行情与收益（后端）~~ | 已完成（d93ce0c）：MANUAL 行情/净值、双口径派生、XIRR/TWR/MDD、快照幂等重建 + 27 测试 |
 | ~~M5 行情与收益（前端）~~ | 已完成（95d2984）：`/market` 估值明细/行情净值录入/快照重建/收益指标卡 |
-| M6 风险与 Agent | 风险规则、确定性提醒、Agent 只读查询与草稿提案 |
+| ~~M6 风险与 Agent（后端）~~ | 已完成（本次提交）：风险规则/扫描/事件、Agent Token/只读网关、提案审批只生成 DRAFT、轻量计划 + 31 测试 |
+| M6 前端 | 风险事件页（规则管理/扫描/确认忽略）、提案审批页、投资计划页；对应路由与导航未做 |
 | 界面审查 | 用户定的流程：产品→UI/UX→前端实现→`impeccable` 审查；审查阶段尚未开始 |
 
 ## 8. 环境与工具坑（踩过的）
@@ -267,6 +283,6 @@ M  backend/app/transactions/router.py
 
 ## 9. 建议的接手顺序
 
-1. ~~M2 前端闭环~~（b6cccd2）、~~M3 场外基金后端~~（b4ebed5）、~~M3 前端闭环~~（77db678）、~~M4 导入后端~~（5b80ace）、~~M4 导入前端~~（0fa2a63）、~~M5 行情与收益后端~~（d93ce0c）、~~M5 前端闭环~~（95d2984）。
-2. 下一步：M6 风险/Agent；或先插入界面审查阶段（`impeccable`）。
+1. ~~M2 前端闭环~~（b6cccd2）、~~M3 场外基金后端~~（b4ebed5）、~~M3 前端闭环~~（77db678）、~~M4 导入后端~~（5b80ace）、~~M4 导入前端~~（0fa2a63）、~~M5 行情与收益后端~~（d93ce0c）、~~M5 前端闭环~~（95d2984）、~~M6 风险/Agent 后端~~（本次提交）。
+2. 下一步：M6 前端（风险事件 + 提案审批 + 计划）；或先插入界面审查阶段（`impeccable`）。
 3. 每次改动后保持：`pytest` 全绿 → `ruff`/`mypy` 干净 → 实测 → 提交。

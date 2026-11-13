@@ -8,6 +8,7 @@ from fastapi import FastAPI
 
 from alembic import command
 from app.accounts.router import router as accounts_router
+from app.agent.router import router as agent_router
 from app.core import errors
 from app.core.config import get_settings
 from app.funds.router import router as funds_router
@@ -15,7 +16,9 @@ from app.imports.router import router as imports_router
 from app.instruments.router import router as instruments_router
 from app.market_data.router import router as market_data_router
 from app.performance.router import router as performance_router
+from app.plans.router import router as plans_router
 from app.positions.router import router as positions_router
+from app.risk.router import router as risk_router
 from app.snapshots.router import router as snapshots_router
 from app.transactions.router import router as transactions_router
 
@@ -49,6 +52,9 @@ def create_app() -> FastAPI:
     app.include_router(market_data_router)
     app.include_router(performance_router)
     app.include_router(snapshots_router)
+    app.include_router(risk_router)
+    app.include_router(agent_router)
+    app.include_router(plans_router)
 
     @app.get("/health")
     def health() -> dict:
