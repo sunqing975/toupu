@@ -17,6 +17,7 @@ import { Instruments } from "./pages/Instruments"
 import { Transactions } from "./pages/Transactions"
 import { Positions } from "./pages/Positions"
 import { Funds } from "./pages/Funds"
+import { Imports } from "./pages/Imports"
 import { Placeholder } from "./pages/Placeholder"
 
 const NAV = [
@@ -73,7 +74,7 @@ export default function App() {
         <Route path="/transactions" element={<Transactions />} />
         <Route path="/funds" element={<Funds />} />
         <Route path="/ledger" element={<Placeholder milestone="M1" description="复式记账分录流水，只读" />} />
-        <Route path="/imports" element={<Placeholder milestone="M4" description="Excel/CSV 导入与期初资产" />} />
+        <Route path="/imports" element={<Imports />} />
         <Route path="/accounts" element={<Accounts />} />
         <Route path="/instruments" element={<Instruments />} />
         <Route path="/settings" element={<Placeholder milestone="M6" description="风险规则、Agent Token 与通知" />} />
