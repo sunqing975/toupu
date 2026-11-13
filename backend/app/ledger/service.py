@@ -223,6 +223,13 @@ def _fund_handlers() -> dict:
     }
 
 
+def _opening_balance_handlers() -> dict:
+    # 延迟导入避免 opening_balances 与 ledger 模块循环依赖
+    from app.opening_balances.handlers import opening_balance_lines
+
+    return {"OPENING_BALANCE": opening_balance_lines}
+
+
 HANDLERS = {
     "DEPOSIT": _cash_lines,
     "WITHDRAW": _cash_lines,
@@ -232,7 +239,20 @@ HANDLERS = {
     "STOCK_SELL": _security_sell_lines,
     "ETF_SELL": _security_sell_lines,
     **_fund_handlers(),
+    **_opening_balance_handlers(),
 }
+
+
+def _needs_lot_check(db: Session, txn: InvestmentTransaction) -> bool:
+    """M4：期初持仓行会建立批次，期初现金行没有批次；冲正时分别处理。"""
+    if txn.transaction_type in LOT_OPENING_TYPES:
+        return True
+    if txn.transaction_type != "OPENING_BALANCE":
+        return False
+    from app.opening_balances.models import OpeningBalanceDetail
+
+    detail = db.query(OpeningBalanceDetail).filter_by(transaction_id=txn.id).one_or_none()
+    return detail is not None and detail.row_kind == "POSITION"
 
 
 def get_entry(db: Session, transaction_id: uuid.UUID) -> JournalEntry | None:
@@ -298,7 +318,8 @@ def reverse_transaction(db: Session, txn: InvestmentTransaction) -> InvestmentTr
         raise BusinessError("该交易已冲正")
 
     # 持仓一致性保护（docs/ledger-rules.md §11：批次是成本分摊轨迹）
-    if txn.transaction_type in LOT_OPENING_TYPES:
+    needs_lot_check = _needs_lot_check(db, txn)
+    if needs_lot_check:
         from app.positions.service import PositionLot
 
         lots = db.query(PositionLot).filter_by(origin_transaction_id=txn.id).all()
@@ -350,8 +371,8 @@ def reverse_transaction(db: Session, txn: InvestmentTransaction) -> InvestmentTr
         )
 
     txn.status = "REVERSED"
-    # 买入/申购冲正：删除其形成的批次（已校验未被消耗），保持批次与分录一致
-    if txn.transaction_type in LOT_OPENING_TYPES:
+    # 买入/申购/期初持仓冲正：删除其形成的批次（已校验未被消耗），保持批次与分录一致
+    if needs_lot_check:
         from app.positions.service import PositionLot
 
         for lot in db.query(PositionLot).filter_by(origin_transaction_id=txn.id):

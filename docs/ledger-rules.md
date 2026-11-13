@@ -184,3 +184,54 @@
 - 申购 / 红利再投资冲正：仅当其形成的批次未被消耗时允许，冲正时删除批次；已被赎回消耗则必须走反向交易。
 - 赎回冲正暂不开放（需还原批次消耗轨迹），与证券卖出冲正一致。
 - 现金分红无批次，可直接冲正。
+
+## 16. M4 导入与期初资产实现口径（第一版）
+
+本节是 §10（初始持仓和现金）与 agent.md §7（导入规范）的落地约定，代码不得自行改变；不改 §3–§15 既有语义。
+
+### 16.1 导入状态机（八步，缺一不可）
+
+上传 → 原始行保存 → 解析/标准化 → 校验 → 重复检测 → 预览 → 人工确认 → 正式入账。
+
+- 上传阶段只写 `import_batches` / `import_records`，**不得写 investment_transactions / journal_* / position_lots**（agent.md §7「导入阶段不得直接写正式账本」）。
+- 只有 `POST /api/v1/imports/batches/{id}/confirm` 才创建 `OPENING_BALANCE` 交易并过账，且整批在同一数据库事务内完成（原子化：任一行失败整批回滚，不留半批账务）。
+- 批次状态 `DRAFT → CONFIRMED | CANCELLED`；`CONFIRMED` 后不可再次确认，重复调用返回同一结果（幂等）。`DRAFT` 可取消。
+- 原始表头与原始行以 JSONB 原样保留（`import_batches.raw_headers` / `import_records.raw`），不得丢弃（agent.md §7「原始数据必须保留」）。
+
+### 16.2 去重键（文件级 + 业务级）
+
+- 文件级：上传时对文件字节做 SHA-256；同一模板下已存在相同 `file_hash` 的批次则直接拒绝（409「该文件已导入过」），不生成新批次。
+- 业务级：每行生成 `dedup_key`，优先使用平台外部编号 `external_id`（`OB|EXT|{account_id}|{external_id}`）；否则用规范化字段组合：
+  - 现金：`OB|CASH|{account_id}|{business_date}|{amount}|{currency}`
+  - 持仓：`OB|POS|{account_id}|{instrument_id}|{business_date}|{quantity}|{total_cost}|{currency}`
+  - 金额/数量一律先 `quantize(0.000001)` 再拼字符串，避免 `10050` 与 `10050.000000` 被当成两行。
+- 校验阶段即做重复检测（同文件内 + 已 `IMPORTED` 的历史行），重复行标 `DUPLICATE` 并在预览中展示；确认阶段只过账 `VALID` 行且再次核对，绝不重复记账。
+- `investment_transactions.idempotency_key = "import:" + dedup_key`，复用 0001 的唯一索引作最终兜底；`journal_entries.transaction_id` 唯一 + `post_transaction` 幂等保证同一交易不会二次入账。
+
+### 16.3 期初分录模板（借贷平衡，§10 落地）
+
+`OPENING_BALANCE` 是「从组合外部注入初始资产」的既成事实，**不是一笔历史买入**：不产生现金流出、不伪造成交日期、不得记为 DEPOSIT（domain-model §4「初始资产不应伪造成历史买入交易」）。
+
+- 期初现金（`row_kind=CASH`）：借 `CASH`（账户）= 金额，贷 `OPENING_BALANCE`（外部平衡科目）= 同额。`total_amount = 金额`。
+- 期初持仓（`row_kind=POSITION`）：借 `SECURITY`（账户+标的）= 账面成本总额，贷 `OPENING_BALANCE` = 同额。同时建立 `position_lots` 批次：`lot_origin=OPENING_BALANCE`、`quantity=确认数量`、`total_cost=账面成本总额`、`unit_cost=total_cost/quantity`、`open_date=business_date`（期初/估值日期），即 domain-model §4 的「期初汇总批次」。`total_amount = total_cost`。
+- 单位成本由 `total_cost / quantity` 推导，不接受用户直接传入的 `unit_cost`，避免与总额矛盾。
+- `cost_source`（来源可信度）与 `valuation_date`（估值日期）保留在 `opening_balance_details`；不得假装掌握真实历史买入批次或基金持有期限。
+
+### 16.4 错误定位与校验
+
+- 每条错误返回 `{row_no, field, message}`；`row_no` 为文件物理行号（表头第 1 行，首条数据第 2 行），可定位到具体行与字段（agent.md §7）。
+- 必填缺失、金额/数量非正数、日期格式错误、账户不存在、标的（`market`+`code`）不存在、行类型非法，都必须给出可读中文原因，绝不静默跳过。
+- 行状态 `VALID | ERROR | DUPLICATE | IMPORTED | SKIPPED`；`ERROR` / `DUPLICATE` 行永不入账。
+- 存在 `ERROR` 行时**整批拒绝确认**（409），避免用户误以为错误行已被处理；`DUPLICATE` 行跳过，不阻止确认。至少需 1 条 `VALID` 行。
+
+### 16.5 冲正
+
+- `OPENING_BALANCE` 可冲正：冲正分录方向翻转；若该行建立了持仓批次且批次未被消耗，冲正时删除批次；期初现金行无批次，可直接冲正。
+- 批次已被卖出/赎回消耗时拒绝冲正，须录入反向交易更正（与 §11 一致）。
+
+### 16.6 范围边界（第一版）
+
+- 仅支持 `OPENING_BALANCE` 模板（期初现金 + 期初持仓）；历史成交流水导入、公司行为、费用调整留待后续，本版不伪造成交明细。
+- 支持 CSV 与 Excel(.xlsx)；模板与字段映射由 `import_templates` / `import_field_mappings` 定义，首次使用时惰性初始化（迁移可从空库执行）。
+- Agent 不得调用导入确认接口（agent.md §8 写操作先 proposal/draft）；导入 API 不暴露给 Agent 自动调用。
+- 期初余额是「起始账面余额」而非外部现金流；XIRR/TWR 按 §12 口径处理，本版不实现指标，仅保留口径说明。
