@@ -5,7 +5,7 @@
 
 ## 1. 一句话状态
 
-**M0（骨架）、M1（基础账本）、M2（证券交易）、M3（场外基金：申购/赎回两段式确认 + 分红/红利再投资）、M4（导入与期初资产：前后端整段完成）已完成并提交；M5（行情与收益）后端已完成并提交（d93ce0c），前端未做**：后端 **89 passed**（M1 19 + M2 7 + M3 17 + M4 19 + M5 27）、ruff/mypy 干净、M5 真实 HTTP E2E 76 断言通过；前端 `tsc`/`vite build` 通过。之后按 §9 顺序继续 M5 前端 → M6 + 界面审查。
+**M0（骨架）、M1（基础账本）、M2（证券交易）、M3（场外基金）、M4（导入与期初资产）、M5（行情与收益）前后端整段完成并提交**：后端 **89 passed**（M1 19 + M2 7 + M3 17 + M4 19 + M5 27）、ruff/mypy 干净、M5 真实 HTTP E2E 76 断言通过；M5 前端 `tsc`/`vite build` 通过（2131 modules）、按前端请求形状的真实 HTTP E2E 50 断言通过（95d2984）。之后按 §9 顺序继续 M6 风险/Agent + 界面审查。
 
 ## 2. 项目定位（摘要，详见 agent.md / README）
 
@@ -71,6 +71,8 @@ uv run mypy app
 | `3d56967` | 文档：同步 handoff —— M4 后端已完成，记录 §6.7 导入/期初口径与踩坑 |
 | `0fa2a63` | **M4 前端闭环**：导入批次上传/预览/错误定位/人工确认/取消页 + `/imports` 路由 |
 | `d93ce0c` | **M5 后端**：MANUAL 行情/净值录入、估值覆盖状态、双口径派生、XIRR/TWR/MDD（Decimal 实现）、快照幂等重建、0008 迁移、27 测试 |
+| `67e7c5b` | 文档：同步 handoff —— M5 后端已完成，新增 §6.9 公式与口径 |
+| `95d2984` | **M5 前端闭环**：行情与收益页（估值明细/行情净值录入/快照重建）+ XIRR/TWR/MDD 指标卡 + `/market` 路由 |
 | `272bab8` | 前端 v0.1：设计令牌（亮/暗）、应用壳导航、总览/账户/品种页（真实 API）、占位页、Toast/Dialog/徽标/骨架屏 |
 | `480e547`、`12d73bc` | UI 文案去行话（「标的」→「投资品种」）；账户类型收紧为券商/基金平台（迁移 0002）；开发模式改本地进程 |
 | `41f3e22` | 产品三件套（product/user-flow/page-spec）+ frontend-design.md |
@@ -87,7 +89,8 @@ uv run mypy app
 - 证券：股票/ETF 买入卖出（可多笔成交）、费用、持仓批次与移动加权平均成本、部分卖出、已实现盈亏、`GET /api/v1/positions`。
 - 场外基金：`/api/v1/funds/orders` 两段式申购/赎回确认、现金分红、红利再投资、FUND/DIVIDEND_REINVEST 批次。
 - 导入与期初资产：`/api/v1/imports`（模板/批次上传/预览/确认/取消），OPENING_BALANCE 期初现金与期初持仓（期初汇总批次，不伪造成交）。
-- 行情与收益（后端）：`/api/v1/market`（行情/净值录入 + 估值覆盖状态）、`/api/v1/performance`（派生汇总 + XIRR/TWR/MDD 状态）、`/api/v1/snapshots`（幂等重建）；快照是可删除重建的派生结果。
+- 行情与收益：`/api/v1/market`（行情/净值录入 + 估值覆盖状态）、`/api/v1/performance`（派生汇总 + XIRR/TWR/MDD 状态）、`/api/v1/snapshots`（幂等重建）；快照是可删除重建的派生结果。前端 `/market` 估值明细/录入/快照重建/收益指标卡。
+- 功能页（前端）：总览、持仓、交易、基金、行情、导入、账户、投资品种（10 项导航，账本/设置仍为占位）。
 - 前端：账户、品种、交易、基金、导入五个功能页 + 持仓页 + 总览，Swiss 极简，信任蓝 `#1E40AF`，红涨绿跌，tabular-nums。
 
 ## 5. M2（证券交易）后端 —— 已全绿，已提交（03071d8）
@@ -231,6 +234,13 @@ M  backend/app/transactions/router.py
 
 **测试注意**：测试与 dev 共用 `toupu` 库，`derive()` 是全库派生（全局 200+ 持仓），故 M5 HTTP 测试只断言自己创建的行/效应，绝不断言全局总金额；覆盖率必然 <1 → `/returns` 的 XIRR 恒为 `INSUFFICIENT_DATA`。
 
+## 6.10 M5 前端形状（95d2984）
+
+- `frontend/src/api/market.ts`：行情/收益/快照三套 API 的类型与封装。`QuoteOut/QuoteIn/NavOut/NavIn/QuoteView/ValuationRow/ValuationOut/SummaryOut/MetricOut/ReturnsOut/PositionSnapshot/PortfolioSnapshot/RebuildOut`；常量 `QUOTE_STATUS_LABELS`（FRESH 有效报价 / STALE 已过期 / UNKNOWN 无报价 / ESTIMATED 盘中估值）、`QUOTE_STATUS_TONE`、`DATA_TYPE_LABELS`、`DATA_QUALITY_LABELS`、`METRIC_STATUS_LABELS`；`marketApi.quotes/createQuote/navs/createNav/valuation/summary/returns/snapshots/snapshotPositions/rebuild`，`?as_of=&stale_days=` 统一查询参数。
+- `frontend/src/pages/Market.tsx`（`/market`，导航「行情」）：顶部日期 + `staleDays`(7/3/30) + 刷新；`loadDerived()` 用 `Promise.all([valuation, summary, returns])` 随日期/阈值重算。8 个 `StatCard`（现金/市值/总资产/账面成本 + 已实现/未实现/分红/报价覆盖）、3 个 `MetricCard`（XIRR/TWR/MDD，OK 时 `×100` 显示 %，否则显示 `METRIC_STATUS_LABELS` + `reason`/`missing`/`peak→trough`，绝不显示看似合理的假数字）。三个 Tab：估值明细表（逐持仓报价状态徽标 + 数量/成本/报价/市值/浮盈 + 合计）、行情录入（「录入行情」「录入净值」两个 Dialog，`NAV` 仅列 FUND、`QUOTE` 仅列非 FUND，`data_type` 可选 OFFICIAL/ESTIMATED，顶部 banner 强调「仅作为估值输入」）、组合快照（重建快照 Dialog + 快照列表 + 快照明细 Dialog）。
+- `frontend/src/App.tsx`：lucide 加 `LineChart`、`NAV` 加「行情」项、`/market` 路由接 `<Market />`（原 9 项导航扩为 10 项）。
+- 验收：`npx tsc --noEmit` = 0，`npx vite build` = 0（2131 modules，366.08 kB）；`/tmp/m5_fe_e2e.py` 按前端真实请求形状（字符串金额、`data_type` 显式、`provider_code`、重复 409、FUND nav 限制、rebuild 幂等、staleDays 变体）真实 HTTP **50 断言全通过**。
+
 ## 7. 还没做
 
 | 事项 | 说明 |
@@ -242,7 +252,7 @@ M  backend/app/transactions/router.py
 | ~~M4 导入（后端）~~ | 已完成（5b80ace）：CSV/Excel、字段映射、去重、预览确认、期初资产 + 19 测试 |
 | ~~M4 导入（前端）~~ | 已完成（0fa2a63）：上传/预览/错误定位/确认/取消页面与 `/imports` 路由 |
 | ~~M5 行情与收益（后端）~~ | 已完成（d93ce0c）：MANUAL 行情/净值、双口径派生、XIRR/TWR/MDD、快照幂等重建 + 27 测试 |
-| M5 行情与收益（前端） | 行情/净值录入、估值与收益展示、快照重建入口（后端 API 已就绪） |
+| ~~M5 行情与收益（前端）~~ | 已完成（95d2984）：`/market` 估值明细/行情净值录入/快照重建/收益指标卡 |
 | M6 风险与 Agent | 风险规则、确定性提醒、Agent 只读查询与草稿提案 |
 | 界面审查 | 用户定的流程：产品→UI/UX→前端实现→`impeccable` 审查；审查阶段尚未开始 |
 
@@ -257,6 +267,6 @@ M  backend/app/transactions/router.py
 
 ## 9. 建议的接手顺序
 
-1. ~~M2 前端闭环~~（b6cccd2）、~~M3 场外基金后端~~（b4ebed5）、~~M3 前端闭环~~（77db678）、~~M4 导入后端~~（5b80ace）、~~M4 导入前端~~（0fa2a63）、~~M5 行情与收益后端~~（d93ce0c）。
-2. 下一步：M5 前端闭环 → M6 风险/Agent；或先插入界面审查阶段（`impeccable`）。
+1. ~~M2 前端闭环~~（b6cccd2）、~~M3 场外基金后端~~（b4ebed5）、~~M3 前端闭环~~（77db678）、~~M4 导入后端~~（5b80ace）、~~M4 导入前端~~（0fa2a63）、~~M5 行情与收益后端~~（d93ce0c）、~~M5 前端闭环~~（95d2984）。
+2. 下一步：M6 风险/Agent；或先插入界面审查阶段（`impeccable`）。
 3. 每次改动后保持：`pytest` 全绿 → `ruff`/`mypy` 干净 → 实测 → 提交。
