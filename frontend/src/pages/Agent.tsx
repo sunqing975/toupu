@@ -1,11 +1,9 @@
 import { useEffect, useState } from "react"
-import { Bot, KeyRound, Plus, Trash2 } from "lucide-react"
+import { Bot, Plus, Settings2, Trash2 } from "lucide-react"
 import { modelsApi, type AgentModel } from "../api/models"
 import { chatApi } from "../api/chat"
 import { Dialog } from "../components/Dialog"
-import { EmptyState } from "../components/EmptyState"
 import { Skeleton } from "../components/Skeleton"
-import { StatusBadge } from "../components/StatusBadge"
 import { useToast } from "../components/Toast"
 
 interface ModelForm {
@@ -26,25 +24,46 @@ const EMPTY_FORM: ModelForm = {
   is_default: false,
 }
 
-function fmtTime(v: string | null) {
-  return v ? new Date(v).toLocaleString("zh-CN") : "—"
+interface ChatMessage {
+  role: "user" | "assistant"
+  content: string
+  modelName?: string | null
+  asOf?: string | null
+  createdAt: string
+}
+
+const SUGGESTIONS = [
+  "我当前组合的整体风险如何？",
+  "有哪些持仓占比偏高？",
+  "帮我拟一份本月的调仓计划草案。",
+  "对比一下两个账户的投资表现。",
+]
+
+function now(): string {
+  return new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })
+}
+
+function fmtDate(v: string | null | undefined) {
+  return v || "今天"
 }
 
 export function Agent() {
   const toast = useToast()
   const [models, setModels] = useState<AgentModel[] | null>(null)
   const [modelError, setModelError] = useState<string | null>(null)
-  const [modelDialogOpen, setModelDialogOpen] = useState(false)
-  const [form, setForm] = useState<ModelForm>(EMPTY_FORM)
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
 
+  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [typing, setTyping] = useState(false)
   const [question, setQuestion] = useState("")
   const [asOf, setAsOf] = useState("")
   const [modelId, setModelId] = useState<string>("")
-  const [answer, setAnswer] = useState<string | null>(null)
-  const [chatModelName, setChatModelName] = useState<string | null>(null)
-  const [chatBusy, setChatBusy] = useState(false)
+
+  // 模型管理（抽屉 / 弹窗）
+  const [manageOpen, setManageOpen] = useState(false)
+  const [showModelForm, setShowModelForm] = useState(false)
+  const [form, setForm] = useState<ModelForm>(EMPTY_FORM)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
 
   const loadModels = () => {
     setModels(null)
@@ -54,12 +73,14 @@ export function Agent() {
       .catch((e) => setModelError(e instanceof Error ? e.message : String(e)))
   }
 
-  useEffect(loadModels, [])
+  useEffect(() => {
+    if (manageOpen) loadModels()
+  }, [manageOpen])
 
   const openCreate = () => {
     setEditingId(null)
     setForm(EMPTY_FORM)
-    setModelDialogOpen(true)
+    setShowModelForm(true)
   }
 
   const openEdit = (m: AgentModel) => {
@@ -72,7 +93,7 @@ export function Agent() {
       api_key: "",
       is_default: m.is_default,
     })
-    setModelDialogOpen(true)
+    setShowModelForm(true)
   }
 
   const saveModel = async () => {
@@ -98,7 +119,7 @@ export function Agent() {
         await modelsApi.create(payload as never)
         toast("success", "模型配置已创建")
       }
-      setModelDialogOpen(false)
+      setShowModelForm(false)
       loadModels()
     } catch (e) {
       toast("error", e instanceof Error ? e.message : String(e))
@@ -124,24 +145,37 @@ export function Agent() {
       return
     }
     if (!models || models.length === 0) {
-      toast("error", "请先在下方配置并选择一个模型")
+      toast("error", "请先在「管理模型」中配置并选择一个模型")
       return
     }
-    setChatBusy(true)
+    const q = question.trim()
+    setMessages((m) => [...m, { role: "user", content: q, createdAt: now() }])
+    setQuestion("")
+    setTyping(true)
     try {
       const res = await chatApi.ask({
-        question: question.trim(),
+        question: q,
         as_of: asOf || null,
         model_id: modelId || null,
       })
-      setAnswer(res.answer)
-      setChatModelName(res.model_name)
+      setMessages((m) => [
+        ...m,
+        {
+          role: "assistant",
+          content: res.answer,
+          modelName: res.model_name,
+          asOf: res.as_of ?? null,
+          createdAt: now(),
+        },
+      ])
     } catch (e) {
       toast("error", e instanceof Error ? e.message : String(e))
     } finally {
-      setChatBusy(false)
+      setTyping(false)
     }
   }
+
+  const useSuggestion = (text: string) => setQuestion(text)
 
   return (
     <div className="page">
@@ -152,24 +186,91 @@ export function Agent() {
             专用会话：模型只看到只读数据快照与你的提问，无法直接改动账本；可执行的操作需你在网页端确认。
           </p>
         </div>
+        <button className="btn btn--secondary" onClick={() => setManageOpen(true)}>
+          <Settings2 size={14} aria-hidden /> 管理模型
+        </button>
       </div>
 
-      {/* 对话 */}
-      <section className="card">
-        <div className="card__head">
-          <div>
-            <h3 className="card__title">
-              <Bot size={16} aria-hidden /> 数据分析会话
-            </h3>
-            <p className="page__sub">提问当前持仓、收益、风险或投资计划建议。</p>
+      <div className="card">
+        {messages.length === 0 && !typing ? (
+          <div className="chat__empty">
+            <Bot size={40} aria-hidden />
+            <div>
+              <p style={{ color: "var(--color-foreground)", fontWeight: 600 }}>开始一次分析对话</p>
+              <p className="page__sub">提出关于持仓、收益、风险或投资计划的问题。</p>
+            </div>
+            <div className="chips">
+              {SUGGESTIONS.map((s) => (
+                <button key={s} className="chip" onClick={() => useSuggestion(s)}>
+                  {s}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="chat__messages">
+            {messages.map((m, i) => (
+              <div
+                key={i}
+                className={`msg ${m.role === "user" ? "msg--user" : "msg--bot"}`}
+              >
+                <div
+                  className={`msg__avatar ${m.role === "user" ? "" : "msg__avatar--bot"}`}
+                >
+                  {m.role === "user" ? "你" : <Bot size={16} aria-hidden />}
+                </div>
+                <div className="msg__body">
+                  <div
+                    className={`msg__bubble ${
+                      m.role === "user" ? "msg__bubble--user" : "msg__bubble--bot"
+                    }`}
+                  >
+                    {m.content}
+                  </div>
+                  {m.role === "assistant" && (
+                    <details className="evidence">
+                      <summary>分析依据</summary>
+                      <div className="evidence__body">
+                        <span>模型：{m.modelName || "默认模型"}</span>
+                        <span>数据截止：{fmtDate(m.asOf)}</span>
+                        <span>
+                          数据范围：账户 / 持仓 / 收益 / 风险事件 / 投资计划的只读快照
+                        </span>
+                        <span>
+                          说明：本次仅基于只读数据快照，未改动账本；可执行操作需你在网页端确认。
+                        </span>
+                      </div>
+                    </details>
+                  )}
+                  <span className="msg__meta">{m.createdAt}</span>
+                </div>
+              </div>
+            ))}
 
-        <div className="stack">
-          <div className="field">
-            <span className="field__label">选择模型（默认使用标记为默认的模型）</span>
+            {typing && (
+              <div className="msg msg--bot">
+                <div className="msg__avatar msg__avatar--bot">
+                  <Bot size={16} aria-hidden />
+                </div>
+                <div className="msg__body">
+                  <div className="msg__bubble msg__bubble--bot">
+                    <span className="typing">
+                      <span />
+                      <span />
+                      <span />
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="chat__composer">
+          <div className="composer__row">
             <select
               className="input"
+              style={{ width: 200 }}
               value={modelId}
               onChange={(e) => setModelId(e.target.value)}
             >
@@ -181,185 +282,173 @@ export function Agent() {
                 </option>
               ))}
             </select>
-          </div>
-
-          <div className="field">
-            <span className="field__label">数据截止日期（留空为今天）</span>
             <input
               className="input"
               type="date"
+              style={{ width: 180 }}
               value={asOf}
               onChange={(e) => setAsOf(e.target.value)}
+              title="数据截止日期（留空为今天）"
             />
           </div>
-
           <textarea
             className="input"
-            rows={4}
+            rows={3}
             value={question}
             placeholder="例如：我当前组合的整体风险如何？有哪些持仓占比偏高？"
             onChange={(e) => setQuestion(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault()
+                ask()
+              }
+            }}
           />
-
-          <div className="dialog__foot">
-            <button className="btn btn--primary" onClick={ask} disabled={chatBusy}>
-              {chatBusy ? "分析中…" : "分析"}
+          <div className="composer__row" style={{ justifyContent: "flex-end" }}>
+            <button className="btn btn--primary" onClick={ask} disabled={typing}>
+              {typing ? "分析中…" : "分析"}
             </button>
           </div>
-
-          {answer !== null && (
-            <div className="alert alert--info">
-              <p className="muted">{chatModelName ? `由 ${chatModelName} 生成` : ""}</p>
-              <p style={{ whiteSpace: "pre-wrap" }}>{answer}</p>
-            </div>
-          )}
         </div>
-      </section>
+      </div>
 
-      {/* 模型配置 */}
-      <section className="card">
-        <div className="card__head">
-          <div>
-            <h3 className="card__title">
-              <KeyRound size={16} aria-hidden /> 模型配置
-            </h3>
-            <p className="page__sub">
-              接入 OpenAI 兼容端点。密钥只写不读，列表与详情均不回显。
-            </p>
-          </div>
-          <button className="btn btn--primary" onClick={openCreate}>
-            <Plus size={14} aria-hidden /> 新建模型
-          </button>
-        </div>
-
+      {/* 模型管理弹窗 */}
+      <Dialog
+        open={manageOpen}
+        title="模型配置"
+        onClose={() => {
+          setManageOpen(false)
+          setShowModelForm(false)
+        }}
+      >
         {modelError && <div className="alert alert--error">{modelError}</div>}
 
-        {models === null ? (
-          <Skeleton rows={4} />
-        ) : models.length === 0 ? (
-          <EmptyState
-            icon={<KeyRound size={40} aria-hidden />}
-            title="还没有模型配置"
-            description="配置一个 OpenAI 兼容的接口地址与模型名后，即可在上方会话中分析当前投资组合。"
-          />
-        ) : (
-          <table className="table">
-            <thead>
-              <tr>
-                <th>名称</th>
-                <th>接口地址</th>
-                <th>模型</th>
-                <th>默认</th>
-                <th>创建时间</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {models.map((m) => (
-                <tr key={m.id}>
-                  <td>
-                    {m.display_name?.trim() || m.name}
-                    {m.display_name?.trim() && m.display_name.trim() !== m.name ? (
-                      <span className="muted">（{m.name}）</span>
-                    ) : null}
-                  </td>
-                  <td className="muted">{m.base_url}</td>
-                  <td>{m.model}</td>
-                  <td>
-                    {m.is_default ? (
-                      <StatusBadge status="ACTIVE" />
-                    ) : (
-                      <span className="muted">—</span>
-                    )}
-                  </td>
-                  <td className="num">{fmtTime(m.created_at)}</td>
-                  <td className="cell--actions">
-                    <button className="btn btn--ghost" onClick={() => openEdit(m)}>
-                      编辑
-                    </button>
-                    <button className="btn btn--ghost" onClick={() => removeModel(m)}>
-                      <Trash2 size={14} aria-hidden /> 删除
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </section>
-
-      {/* 新建 / 编辑模型弹窗 */}
-      <Dialog
-        open={modelDialogOpen}
-        title={editingId ? "编辑模型配置" : "新建模型配置"}
-        onClose={() => setModelDialogOpen(false)}
-      >
-        <div className="stack">
-          <label className="field">
-            <span className="field__label">名称</span>
-            <input
-              className="input"
-              value={form.name}
-              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-              placeholder="例如：GPT-5 分析助手"
-            />
-          </label>
-          <label className="field">
-            <span className="field__label">中文别名（可选，用于界面友好展示）</span>
-            <input
-              className="input"
-              value={form.display_name}
-              onChange={(e) => setForm((f) => ({ ...f, display_name: e.target.value }))}
-              placeholder="例如：主力分析模型"
-            />
-          </label>
-          <label className="field">
-            <span className="field__label">接口地址（OpenAI 兼容）</span>
-            <input
-              className="input"
-              value={form.base_url}
-              onChange={(e) => setForm((f) => ({ ...f, base_url: e.target.value }))}
-              placeholder="https://api.openai.com/v1"
-            />
-          </label>
-          <label className="field">
-            <span className="field__label">模型名</span>
-            <input
-              className="input"
-              value={form.model}
-              onChange={(e) => setForm((f) => ({ ...f, model: e.target.value }))}
-              placeholder="例如：gpt-5"
-            />
-          </label>
-          <label className="field">
-            <span className="field__label">
-              API Key{editingId ? "（留空表示不修改）" : ""}
-            </span>
-            <input
-              className="input"
-              type="password"
-              value={form.api_key}
-              onChange={(e) => setForm((f) => ({ ...f, api_key: e.target.value }))}
-              placeholder={editingId ? "不修改请留空" : "sk-..."}
-            />
-          </label>
-          <label className="check">
-            <input
-              type="checkbox"
-              checked={form.is_default}
-              onChange={(e) => setForm((f) => ({ ...f, is_default: e.target.checked }))}
-            />
-            <span>设为默认模型</span>
-          </label>
-          <div className="dialog__foot">
-            <button className="btn btn--ghost" onClick={() => setModelDialogOpen(false)}>
-              取消
-            </button>
-            <button className="btn btn--primary" onClick={saveModel} disabled={busy}>
-              {busy ? "保存中…" : "保存"}
-            </button>
+        {showModelForm ? (
+          <div className="stack">
+            <label className="field">
+              <span className="field__label">名称</span>
+              <input
+                className="input"
+                value={form.name}
+                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                placeholder="例如：GPT-5 分析助手"
+              />
+            </label>
+            <label className="field">
+              <span className="field__label">中文别名（可选，用于界面友好展示）</span>
+              <input
+                className="input"
+                value={form.display_name}
+                onChange={(e) => setForm((f) => ({ ...f, display_name: e.target.value }))}
+                placeholder="例如：主力分析模型"
+              />
+            </label>
+            <label className="field">
+              <span className="field__label">接口地址（OpenAI 兼容）</span>
+              <input
+                className="input"
+                value={form.base_url}
+                onChange={(e) => setForm((f) => ({ ...f, base_url: e.target.value }))}
+                placeholder="https://api.openai.com/v1"
+              />
+            </label>
+            <label className="field">
+              <span className="field__label">模型名</span>
+              <input
+                className="input"
+                value={form.model}
+                onChange={(e) => setForm((f) => ({ ...f, model: e.target.value }))}
+                placeholder="例如：gpt-5"
+              />
+            </label>
+            <label className="field">
+              <span className="field__label">
+                API Key{editingId ? "（留空表示不修改）" : ""}
+              </span>
+              <input
+                className="input"
+                type="password"
+                value={form.api_key}
+                onChange={(e) => setForm((f) => ({ ...f, api_key: e.target.value }))}
+                placeholder={editingId ? "不修改请留空" : "sk-..."}
+              />
+            </label>
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={form.is_default}
+                onChange={(e) => setForm((f) => ({ ...f, is_default: e.target.checked }))}
+              />
+              <span>设为默认模型</span>
+            </label>
+            <div className="dialog__foot">
+              <button
+                className="btn btn--ghost"
+                onClick={() => setShowModelForm(false)}
+              >
+                返回
+              </button>
+              <button className="btn btn--primary" onClick={saveModel} disabled={busy}>
+                {busy ? "保存中…" : "保存"}
+              </button>
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="stack">
+            <div className="toolbar" style={{ justifyContent: "flex-end" }}>
+              <button className="btn btn--primary" onClick={openCreate}>
+                <Plus size={14} aria-hidden /> 新建模型
+              </button>
+            </div>
+            {models === null ? (
+              <Skeleton rows={4} />
+            ) : models.length === 0 ? (
+              <p className="muted">还没有模型配置，点击右上角新建。</p>
+            ) : (
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>名称</th>
+                    <th>接口地址</th>
+                    <th>模型</th>
+                    <th>默认</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {models.map((m) => (
+                    <tr key={m.id}>
+                      <td>
+                        {m.display_name?.trim() || m.name}
+                        {m.display_name?.trim() &&
+                        m.display_name.trim() !== m.name ? (
+                          <span className="muted">（{m.name}）</span>
+                        ) : null}
+                      </td>
+                      <td className="muted">{m.base_url}</td>
+                      <td>{m.model}</td>
+                      <td>{m.is_default ? "是" : "—"}</td>
+                      <td className="cell--actions">
+                        <button
+                          className="btn btn--ghost"
+                          onClick={() => openEdit(m)}
+                        >
+                          编辑
+                        </button>
+                        <button
+                          className="btn btn--ghost"
+                          onClick={() => removeModel(m)}
+                        >
+                          <Trash2 size={14} aria-hidden /> 删除
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
       </Dialog>
     </div>
   )
