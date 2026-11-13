@@ -6,7 +6,7 @@ import {
   Landmark,
   LayoutDashboard,
   LineChart,
-  Settings,
+  Settings as SettingsIcon,
   ShieldAlert,
   Tags,
   Target,
@@ -24,7 +24,8 @@ import { Imports } from "./pages/Imports"
 import { Market } from "./pages/Market"
 import { Risk } from "./pages/Risk"
 import { Plans } from "./pages/Plans"
-import { Placeholder } from "./pages/Placeholder"
+import { Ledger } from "./pages/Ledger"
+import { Settings } from "./pages/Settings"
 
 
 const NAV = [
@@ -39,7 +40,7 @@ const NAV = [
   { to: "/imports", label: "导入", icon: Upload, title: "导入" },
   { to: "/accounts", label: "账户", icon: Wallet, title: "账户" },
   { to: "/instruments", label: "投资品种", icon: Tags, title: "投资品种" },
-  { to: "/settings", label: "设置", icon: Settings, title: "设置" },
+  { to: "/settings", label: "设置", icon: SettingsIcon, title: "设置" },
 ]
 
 function Shell() {
@@ -86,11 +87,11 @@ export default function App() {
         <Route path="/market" element={<Market />} />
         <Route path="/risk" element={<Risk />} />
         <Route path="/plans" element={<Plans />} />
-        <Route path="/ledger" element={<Placeholder title="账本" description="复式记账分录流水（只读）" />} />
+        <Route path="/ledger" element={<Ledger />} />
         <Route path="/imports" element={<Imports />} />
         <Route path="/accounts" element={<Accounts />} />
         <Route path="/instruments" element={<Instruments />} />
-        <Route path="/settings" element={<Placeholder title="设置" description="风险规则、Agent Token 与通知" />} />
+        <Route path="/settings" element={<Settings />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

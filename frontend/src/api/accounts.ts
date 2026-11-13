@@ -1,6 +1,8 @@
 import { api } from "./client"
 import type { InvestmentAccount } from "./types"
 
+export type { InvestmentAccount }
+
 const BASE = "/api/v1/accounts"
 
 export const accountsApi = {

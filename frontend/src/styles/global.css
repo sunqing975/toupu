@@ -193,6 +193,26 @@ button {
   margin-bottom: var(--space-2);
 }
 
+.card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.card__head .card__title {
+  margin-bottom: var(--space-1);
+}
+
+.page__foot {
+  margin-top: var(--space-3);
+}
+
+.muted {
+  color: var(--color-muted-foreground);
+}
+
 .card__value {
   font-size: 20px;
   font-weight: 600;
@@ -277,6 +297,15 @@ button {
   color: var(--color-on-primary);
 }
 
+/* ---------- 工具条 ---------- */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
 /* ---------- 表单 ---------- */
 
 .field {
@@ -359,6 +388,86 @@ button {
 .table .cell--actions {
   text-align: right;
   white-space: nowrap;
+}
+
+/* ---------- 标签 ---------- */
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 18px;
+  color: var(--color-muted-foreground);
+  background: color-mix(in srgb, var(--color-muted-foreground) 12%, transparent);
+  white-space: nowrap;
+}
+
+/* ---------- 反馈（alert / 内联成功与错误） ---------- */
+
+.alert {
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-control);
+  font-size: 13px;
+  border: 1px solid transparent;
+}
+
+.alert--error {
+  color: var(--color-destructive);
+  border-color: color-mix(in srgb, var(--color-destructive) 40%, transparent);
+  background: color-mix(in srgb, var(--color-destructive) 8%, transparent);
+}
+
+.alert--success {
+  color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 8%, transparent);
+}
+
+.code-block {
+  display: block;
+  padding: var(--space-3);
+  border-radius: var(--radius-control);
+  background: var(--color-background);
+  border: 1px solid var(--color-border);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  word-break: break-all;
+  user-select: all;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* ---------- 复选组（Token scope 选择） ---------- */
+
+.check-group {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2) var(--space-4);
+  margin-top: var(--space-1);
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 13px;
+}
+
+.check input {
+  width: 16px;
+  height: 16px;
 }
 
 /* ---------- 徽标 ---------- */

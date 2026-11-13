@@ -1,3 +1,9 @@
-export function Skeleton({ width = "100%" }: { width?: string }) {
-  return <div className="skeleton" style={{ width }} aria-hidden />
+export function Skeleton({ rows = 1 }: { rows?: number }) {
+  return (
+    <>
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="skeleton" aria-hidden />
+      ))}
+    </>
+  )
 }
