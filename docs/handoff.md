@@ -5,7 +5,7 @@
 
 ## 1. 一句话状态
 
-**M0~M6 前后端整段完成并提交**：后端 **121 passed**（M1 19 + M2 7 + M3 17 + M4 19 + M5 27 + M6 32）、ruff/mypy 干净；M6 真实 HTTP E2E **36 断言通过**；前端 `tsc`/`vite build` 通过（2134 modules）；**界面审查阶段（`impeccable`）已完成**（P0 `.btn--ghost` 缺失样式、P1 仪表盘真实数据、P1 占位诚实化、P3 货币符号）。剩余：账本页/设置页为诚实空态占位（可选落地）。
+**M0~M6 前后端整段完成并提交**；**界面审查（`impeccable`）已完成**；**M7 Agent 框架 Phase 1-3 已完成并提交**：后端 **133 passed**、ruff/mypy 干净；前端 `tsc`/`vite build` 通过（2140 modules）。M7 含系统 skill 文档、对外 MCP 服务（只读资源 + 提案工具，X-Agent-Token 鉴权）、模型配置 CRUD、OpenAI 兼容分析会话（`/agent/chat`）、前端 `/agent` 页与中文别名 display_name。剩余：M7 Phase 4（挂载外部 MCP：AgentMcpServer 前端 + 通用客户端，在 chat 快照注入外部知识/工具）→ Phase 5 全量验收 → 提交。
 
 ## 2. 项目定位（摘要，详见 agent.md / README）
 
@@ -274,6 +274,20 @@ M  backend/app/transactions/router.py
   - **P2 帮助引导**：Risk/Plans 已有页面级微文案（确定性规则/缺失不伪装、Agent 只建提案不入账、计划不触发账务）；EmptyState 已覆盖首次使用引导，无需新增 tooltip 组件。
 - 验收：`npx tsc --noEmit` 退出 0；`npx vite build` 退出 0（2134 modules，dist 397.97 kB）。
 
+## 6.14 M7 Agent 框架 Phase 1-3（本次提交）
+
+用户自定义目标（m03572/m03707）：理想 Agent 不是单页聊天，而是一套框架 —— ① 系统 skill 让 agent 知道怎么用 ② 本系统对外提供 MCP（其他 agent 可查询/生成投资计划）③ 系统内可配置模型 ④ 专门会话拿当前数据分析 ⑤ 后续用 MCP 对接外部知识库（如 weknora），需支持 mcp 挂载 + 对外提供 mcp 服务。
+
+- **Phase 1（skill 文档）**：`docs/agent-skill.md`（§1-§8：系统说明/接入/鉴权/scope 白名单/只读资源 meta/提案工作流/安全红线/MCP 工具资源清单）。
+- **Phase 2（对外 MCP 服务）**：`app/agent/resources.py`（10 个只读资源函数，各返回 `(data, Meta)` + `RESOURCE_CATALOG`）；`app/agent/mcp_server.py`（`build_mcp_server` + `mount_mcp` + `AgentTokenMiddleware` + `current_agent_token` ContextVar；10 个只读 `@mcp.resource` 委托 resources，1 个 `@mcp.tool create_proposal`（write:proposals + validate_payload，只建 PENDING））；主 app 在 lifespan 显式 `mcp_server._session_manager.run()`（FastAPI `Mount` 不触子应用 lifespan）。挂载到 `/mcp/`。MCP SDK 锁 `mcp==1.30`（v2 重命名 FastMCP→MCPServer 且不兼容）。真实 HTTP E2E 已验证鉴权与工具调用。
+- **Phase 3（模型配置 + 分析会话 + 前端 Agent 页）**：
+  - 迁移 `0010`：`agent_models`（`display_name` Text 可空，`0011` 增补）、`agent_mcp_servers`（Phase 4 用）。
+  - `app/agent/models_router.py`：`/api/v1/agent/models` CRUD（密钥只写不读、默认模型互斥、部分更新保留密钥）。
+  - `app/agent/llm.py`：`chat(db, messages, model_id, temperature)` 调 OpenAI 兼容 `/chat/completions`（httpx）；无配置→`RuntimeError("尚未配置可用的模型")`。
+  - `app/agent/chat_router.py`：`POST /api/v1/agent/chat`（拼只读快照 summary/valuation/returns/positions/risk_events/proposals + 用户问题 + 系统提示，模型只能看到只读数据、不直接写账本；`model_name` 优先 `display_name`）。
+  - 前端：`/agent` 页（对话区：选模型/as_of/提问；模型配置区：表格/新建编辑/删除，密钥 password 不回显、留空不修改）；`api/models.ts`、`api/chat.ts`；`App.tsx` 加 NAV 与路由；`Settings.tsx` 收敛为「知识库/外部 MCP」诚实空态。
+- 验收：`uv run ruff check/fmt` 全绿、`uv run mypy app` Success 65 files、`uv run pytest -q` 133 passed；前端 `tsc`/`vite build` 均 0。
+
 ## 7. 还没做
 
 | 事项 | 说明 |
@@ -288,10 +302,12 @@ M  backend/app/transactions/router.py
 | ~~M5 行情与收益（前端）~~ | 已完成（95d2984）：`/market` 估值明细/行情净值录入/快照重建/收益指标卡 |
 | ~~M6 风险与 Agent（后端）~~ | 已完成（21efd98）：风险规则/扫描/事件、Agent Token/只读网关、提案审批只生成 DRAFT、轻量计划 + 32 测试 |
 | ~~M6 前端~~ | 已完成（4e8b431）：`/risk` 事件与规则管理、`/plans` 提案审批与投资计划 |
-| ~~界面审查~~ | 已完成（本次提交）：impeccable Operate 审查 + P0/P1/P3 修复 + tsc/build 通过 |
-| 账本页 `/ledger` | 占位（诚实空态）；后端无只读分录列表接口（可从 transactions detail 取，或新增 `GET /ledger/entries`） |
-| 设置页 `/settings` | 占位（诚实空态）；页面规格要求放风险规则与 Agent Token 管理（当前规则在 `/risk`，Token 无前端） |
-| 账本/设置页真正落地 | 可选：补只读分录列表接口 + 前端页面，或 Agent Token 管理前端 |
+| ~~界面审查~~ | 已完成（029a58a）：impeccable Operate 审查 + P0/P1/P3 修复 + tsc/build 通过 |
+| ~~M7 账本页/设置页脚手架~~ | 已完成（3f8241e/6df6382）：账本只读接口 + 前端账本页/设置页 + 端口改 5180 |
+| ~~M7 Phase 1-2（skill + 对外 MCP）~~ | 已完成（c21980e）：系统 skill 文档 + 对外 MCP 服务 + 00010 迁移 + resources 重构 |
+| ~~M7 Phase 3（模型配置 + 分析会话 + 前端 Agent 页）~~ | 已完成（本次提交）：模型 CRUD + OpenAI 兼容客户端 + `/agent/chat` + 前端 `/agent` 页 + display_name 别名 |
+| M7 Phase 4（挂载外部 MCP） | 待做：`agent_mcp_servers` 表落地前端 + 通用 MCP 客户端（stdio/http），在 chat 快照里注入外部知识/工具 |
+| M7 Phase 5（验收） | 待做：Phase 4 合入后全量 E2E + 提交 |
 
 ## 8. 环境与工具坑（踩过的）
 
@@ -306,6 +322,6 @@ M  backend/app/transactions/router.py
 
 ## 9. 建议的接手顺序
 
-1. ~~M2 前端闭环~~（b6cccd2）、~~M3 场外基金后端~~（b4ebed5）、~~M3 前端闭环~~（77db678）、~~M4 导入后端~~（5b80ace）、~~M4 导入前端~~（0fa2a63）、~~M5 行情与收益后端~~（d93ce0c）、~~M5 前端闭环~~（95d2984）、~~M6 风险/Agent 后端~~（21efd98）、~~M6 前端~~（4e8b431）、~~界面审查~~（本次提交）。
-2. 可选下一步：补账本/设置页（Agent Token 管理前端），或新增只读分录列表接口。
+1. ~~M2 前端闭环~~（b6cccd2）、~~M3 场外基金后端~~（b4ebed5）、~~M3 前端闭环~~（77db678）、~~M4 导入后端~~（5b80ace）、~~M4 导入前端~~（0fa2a63）、~~M5 行情与收益后端~~（d93ce0c）、~~M5 前端闭环~~（95d2984）、~~M6 风险/Agent 后端~~（21efd98）、~~M6 前端~~（4e8b431）、~~界面审查~~（029a58a）、~~M7 Phase 1-3（skill + 对外 MCP + 模型配置 + 分析会话 + 前端 Agent 页）~~（本次提交）。
+2. 下一步：M7 Phase 4（挂载外部 MCP：AgentMcpServer 前端 + 通用客户端，在 chat 快照注入外部知识/工具）→ Phase 5 全量验收 → 提交。
 3. 每次改动后保持：`pytest` 全绿 → `ruff`/`mypy` 干净 → 实测 → 提交。

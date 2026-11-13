@@ -167,7 +167,7 @@ export function Settings() {
         <div className="card__head">
           <div>
             <h3 className="card__title">
-              <ShieldCheck size={16} aria-hidden /> 模型配置 / 知识库 / 会话
+              <ShieldCheck size={16} aria-hidden /> 知识库 / 外部 MCP
             </h3>
             <p className="page__sub">M7 Agent 框架的一部分，规划中。</p>
           </div>
@@ -175,7 +175,7 @@ export function Settings() {
         <EmptyState
           icon={<ShieldCheck size={40} aria-hidden />}
           title="尚未实现"
-          description="模型接入、投资资料知识库、以及可拉取当前数据进行分析的专用会话，将在 M7 分阶落地。"
+          description="优先以 MCP 方式对接外部知识库（如 weknora 等）；本系统同时支持挂载外部 MCP 服务与对外提供 MCP 服务。"
         />
       </section>
 
