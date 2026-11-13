@@ -151,8 +151,10 @@ def test_reverse_flow() -> None:
 
     detail = client.get(f"/api/v1/transactions/{txn['id']}").json()
     assert detail["entry"]["entry_type"] == "NORMAL"
-    # 冲正交易存在且已入账，分录为 REVERSAL
-    reversal = client.get("/api/v1/transactions", params={"status_filter": "POSTED"}).json()
+    # 冲正交易存在且已入账，分录为 REVERSAL（按账户过滤，避免被列表 100 条上限截断）
+    reversal = client.get(
+        "/api/v1/transactions", params={"status_filter": "POSTED", "account_id": acc}
+    ).json()
     rev = [t for t in reversal if str(t["reversal_of_id"]) == txn["id"]]
     assert len(rev) == 1
     rev_detail = client.get(f"/api/v1/transactions/{rev[0]['id']}").json()

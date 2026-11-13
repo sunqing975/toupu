@@ -295,6 +295,35 @@ def test_rule_patch_cannot_change_scope_or_type():
     assert "规则范围与类型不可修改" in resp.text
 
 
+def test_rule_patch_valid_fields_and_audit():
+    # 回归：Decimal 阈值写审计 JSONB 不能 500
+    rule = _rule("INSTRUMENT", "POSITION_WEIGHT", "0.200000")
+    resp = client.patch(
+        f"/api/v1/risk/rules/{rule['id']}",
+        json={
+            "threshold": "0.250000",
+            "severity": "CRITICAL",
+            "enabled": False,
+            "cooldown_minutes": 0,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["threshold"] == "0.250000"
+    assert body["severity"] == "CRITICAL"
+    assert body["enabled"] is False
+
+    with SessionLocal() as db:
+        detail = db.execute(
+            text(
+                "SELECT detail FROM audit_logs "
+                "WHERE action = 'risk.rule.update' AND entity_id = :eid"
+            ),
+            {"eid": rule["id"]},
+        ).scalar_one()
+    assert detail["threshold"] == "0.250000"
+
+
 def test_event_resolve_then_duplicate_rejected():
     # 用 QUOTE_COVERAGE 规则（必触发，不依赖全局权重比例），按 dedup_key 取本次新建的事件。
     acc = _account(_new_id())

@@ -132,7 +132,13 @@ def update_rule(rule_id: uuid.UUID, payload: RulePatch, db: Session = Depends(ge
         setattr(rule, field, value)
     db.commit()
     db.refresh(rule)
-    record_audit(db, "risk.rule.update", "risk_rule", str(rule_id), changes)
+    record_audit(
+        db,
+        "risk.rule.update",
+        "risk_rule",
+        str(rule_id),
+        payload.model_dump(exclude_unset=True, mode="json"),
+    )
     db.commit()
     return rule
 

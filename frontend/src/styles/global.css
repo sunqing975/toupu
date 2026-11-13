@@ -411,6 +411,12 @@ button {
   background: color-mix(in srgb, var(--color-destructive) 8%, transparent);
 }
 
+.banner--warning {
+  color: var(--color-warning);
+  border: 1px solid color-mix(in srgb, var(--color-warning) 40%, transparent);
+  background: color-mix(in srgb, var(--color-warning) 8%, transparent);
+}
+
 .skeleton {
   border-radius: var(--radius-control);
   background: linear-gradient(
