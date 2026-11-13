@@ -5,7 +5,7 @@
 
 ## 1. 一句话状态
 
-**M0（骨架）、M1（基础账本）、M2（证券交易）、M3（场外基金：申购/赎回两段式确认 + 分红/红利再投资）、M4（导入与期初资产：前后端整段完成）已完成并提交**：后端 62 passed（M1 19 + M2 7 + M3 17 + M4 19）、ruff/mypy 干净、M4 真实 HTTP E2E 通过；前端 `tsc`/`vite build` 通过、M4 前端形状真实 HTTP 全链路 E2E 通过。之后按 §9 顺序继续 M5 → M6 + 界面审查。
+**M0（骨架）、M1（基础账本）、M2（证券交易）、M3（场外基金：申购/赎回两段式确认 + 分红/红利再投资）、M4（导入与期初资产：前后端整段完成）已完成并提交；M5（行情与收益）后端已完成并提交（d93ce0c），前端未做**：后端 **89 passed**（M1 19 + M2 7 + M3 17 + M4 19 + M5 27）、ruff/mypy 干净、M5 真实 HTTP E2E 76 断言通过；前端 `tsc`/`vite build` 通过。之后按 §9 顺序继续 M5 前端 → M6 + 界面审查。
 
 ## 2. 项目定位（摘要，详见 agent.md / README）
 
@@ -24,8 +24,8 @@
 
 ```
 backend/          FastAPI + SQLAlchemy 2.x + Alembic + pytest
-  app/{accounts,instruments,transactions,executions,positions,funds,imports,opening_balances,ledger,audit,core,db}
-  alembic/versions/   0001 基线(13表) … 0004 instrument_id … 0005 line_no … 0006 基金字段/lot_origin … 0007 导入表/期初明细
+  app/{accounts,instruments,transactions,executions,positions,funds,imports,opening_balances,market_data,performance,snapshots,ledger,audit,core,db}
+  alembic/versions/   0001 基线(13表) … 0004 instrument_id … 0005 line_no … 0006 基金字段/lot_origin … 0007 导入表/期初明细 … 0008 行情/快照表
   tests/
 frontend/         React 19 + TS + Vite（视觉约束见根目录 frontend-design.md）
 docs/             产品/领域/账务/数据库/实施计划/页面规格
@@ -70,6 +70,7 @@ uv run mypy app
 | `5b80ace` | **M4 后端**：CSV/Excel 上传预览/校验/去重、人工确认单事务过账、OPENING_BALANCE 处理器与期初汇总批次、0007 迁移（含模板种子）、19 测试 |
 | `3d56967` | 文档：同步 handoff —— M4 后端已完成，记录 §6.7 导入/期初口径与踩坑 |
 | `0fa2a63` | **M4 前端闭环**：导入批次上传/预览/错误定位/人工确认/取消页 + `/imports` 路由 |
+| `d93ce0c` | **M5 后端**：MANUAL 行情/净值录入、估值覆盖状态、双口径派生、XIRR/TWR/MDD（Decimal 实现）、快照幂等重建、0008 迁移、27 测试 |
 | `272bab8` | 前端 v0.1：设计令牌（亮/暗）、应用壳导航、总览/账户/品种页（真实 API）、占位页、Toast/Dialog/徽标/骨架屏 |
 | `480e547`、`12d73bc` | UI 文案去行话（「标的」→「投资品种」）；账户类型收紧为券商/基金平台（迁移 0002）；开发模式改本地进程 |
 | `41f3e22` | 产品三件套（product/user-flow/page-spec）+ frontend-design.md |
@@ -86,6 +87,7 @@ uv run mypy app
 - 证券：股票/ETF 买入卖出（可多笔成交）、费用、持仓批次与移动加权平均成本、部分卖出、已实现盈亏、`GET /api/v1/positions`。
 - 场外基金：`/api/v1/funds/orders` 两段式申购/赎回确认、现金分红、红利再投资、FUND/DIVIDEND_REINVEST 批次。
 - 导入与期初资产：`/api/v1/imports`（模板/批次上传/预览/确认/取消），OPENING_BALANCE 期初现金与期初持仓（期初汇总批次，不伪造成交）。
+- 行情与收益（后端）：`/api/v1/market`（行情/净值录入 + 估值覆盖状态）、`/api/v1/performance`（派生汇总 + XIRR/TWR/MDD 状态）、`/api/v1/snapshots`（幂等重建）；快照是可删除重建的派生结果。
 - 前端：账户、品种、交易、基金、导入五个功能页 + 持仓页 + 总览，Swiss 极简，信任蓝 `#1E40AF`，红涨绿跌，tabular-nums。
 
 ## 5. M2（证券交易）后端 —— 已全绿，已提交（03071d8）
@@ -204,6 +206,31 @@ M  backend/app/transactions/router.py
 - `frontend/src/App.tsx`：`/imports` 从 `Placeholder` 换成 `<Imports />`。
 - 验收：`npx tsc --noEmit` = 0，`npx vite build` = 0（2129 modules）；`/tmp/m4_fe_e2e.py` 按前端真实请求形状（multipart `file`+`memo`、`?status=` 过滤、`FormData` 上传、错误行定位、取消、同文件 409）真实 HTTP 11 项全通过。
 
+## 6.9 M5 行情与收益实现口径（d93ce0c）—— 详见 docs/ledger-rules.md §17
+
+账务/公式语义先落文档（agent.md §10/§12）：`docs/ledger-rules.md` 追加 §17（含 XIRR/TWR/MDD 公式、正负号约定、人工基准、缺失行情处理），再写代码。
+
+**范围与边界**（§17.1/§17.2）：第一版只实现 `MANUAL` Provider（显式录入，保留 `provider/collected_at/market_time/data_type/quality_status/adjust_type`），`MarketDataProvider(ABC)` 预留可替换接口；行情是估值输入，不覆盖账本成交价；正式净值 `OFFICIAL` 与盘中估值 `ESTIMATED` 分开，ESTIMATED 不用于核算；报价超 `stale_days`(默认 7) 标 `STALE`、无报价 `UNKNOWN`，**缺失或过期绝不静默显示为实时或用 0 冒充**；收益指标估值覆盖不全返回 `INSUFFICIENT_DATA` 而非看似合理的数字。
+
+**派生口径**（`app/performance/service.py`）：方向 `DEBIT=+ / CREDIT=−`；`cash` = Σ CASH 科目分录行、`realized` = Σ REALIZED_GAIN CREDIT − Σ REALIZED_LOSS DEBIT、`dividend_income` = Σ DIVIDEND_INCOME CREDIT（冲正分录方向翻转故自动抵消）；`quantity` = Σ `position_lots.remaining_quantity>0`、`book_cost` = Σ 同源批次 `total_cost`，**双口径交叉校验**：另算 SECURITY 科目 DEBIT−CREDIT，不一致抛 `ValueError` 拒绝生成快照；`market_value` 仅对有效报价（FRESH/STALE）持仓计入并给 `coverage`；`total_assets = Σcash + Σmarket_value`。
+
+**关键取舍**（§17.2）：因 `reduce_position` 部分卖出删批次、清仓不写 disposal，`rebuild` 第一版只按当前实时余额生成快照，`snapshot_date` 是保存标签而非历史回放参数；明确不支持任意历史日账面余额精确回溯、不伪造。XIRR 现金流取不可变 `investment_transactions`（status=POSTED 且非冲正交易，含 business_date），期末估值取当前总资产；TWR/MDD 取已保存 `portfolio_snapshots` 序列。
+
+**外部现金流边界**（§17.3）：DEPOSIT 是（投入为负）、WITHDRAW 是（收回为正）、OPENING_BALANCE 期初资本基数（负）；ACCOUNT_TRANSFER 否（内部转账）、证券买卖/基金申赎/分红/再投资/费用 否；现金分红已含期末估值不再单列。
+
+**公式**（`app/performance/formulas.py`，纯函数、无 DB/HTTP、Decimal 分数指数无 float）：
+- XIRR：`NPV(r)=Σ CF_i/(1+r)^((d_i−d_0)/365)=0`，`r∈(−0.9999,10]` 二分 200 次、`|NPV|<1e-10`，同号无解返回 `None`（`NO_SOLUTION`）。人工基准 A `−100000@2026-01-01 / +110000@2027-01-01 → 0.100000`，B `…+50000@2027-01-01/+66000@2028-01-01 → 0.100000`（`−100000+50000/1.1+66000/1.21=0`）。
+- TWR：`r_i=V_i^-/V_{i-1}−1`、`V_i=V_i^-+F_i`、`TWR=Π(1+r_i)−1`；输入 = `portfolio_snapshots` 序列 + 外部现金流，每个现金流日期取 `snapshot_date<=d_i` 最近快照作 `V_i^-`，`as_of` 当天须有快照作 `V_T^-`，缺估值或 `V_{i-1}<=0` → `INSUFFICIENT_DATA`（列缺失日期、不插值）。人工基准 `100000→110000→143000` + `20000@06-30` → `0.210000`；无现金流 `100000→115000` → `0.150000`。
+- MDD：`MDD=min_t(V_t/max_{s<=t}V_s − 1)`；基准 `[100,120,90,150,120] → −0.250000`。
+
+**API**：`POST/GET /api/v1/market/quotes`（股票/ETF 日行情，OFFICIAL 只接受 `adjust_type=NONE`，重复 409）、`POST/GET /api/v1/market/navs`（仅 FUND 品种）、`GET /api/v1/market/valuation`（逐持仓 quote_status + market_value + unrealized）、`GET /api/v1/performance/summary`、`GET /api/v1/performance/returns`（XIRR/TWR/MDD 带 `status/value/missing/reason`）、`POST /api/v1/snapshots/rebuild`（同日先删后建幂等）、`GET /api/v1/snapshots`、`GET /api/v1/snapshots/{date}/positions`。
+
+**迁移 0008**：`market_quotes`、`fund_nav_history`、`position_snapshots`、`portfolio_snapshots` 四表（逐列列清单见 `0008_market_snapshots.py`）；ORM 逐列对齐原生 DDL（沿用 0007 踩坑：不能凭习惯多写 `created_at`）。
+
+**验收**：`tests/test_performance.py` 15 个纯函数测试（XIRR A/B/C 基准、NPV 零点、同号无解、现金流同日合并、TWR 两基准 + 三种缺失、MDD 两基准 + 无回撤、六位精度）；`tests/test_market_snapshots.py` 12 个 HTTP 测试（行情/净值录入边界、FRESH/STALE/UNKNOWN/ESTIMATED 四态、缺失报价不静默为 0、快照幂等重建、不改动账本、收益指标结构、XIRR 覆盖不全返回状态、转账不计外部现金流）。全量 **89 passed**；`ruff check/format`、`mypy`（47 source files）干净；`/tmp/m5_e2e.py` 真实 HTTP 76 断言通过。
+
+**测试注意**：测试与 dev 共用 `toupu` 库，`derive()` 是全库派生（全局 200+ 持仓），故 M5 HTTP 测试只断言自己创建的行/效应，绝不断言全局总金额；覆盖率必然 <1 → `/returns` 的 XIRR 恒为 `INSUFFICIENT_DATA`。
+
 ## 7. 还没做
 
 | 事项 | 说明 |
@@ -214,7 +241,8 @@ M  backend/app/transactions/router.py
 | ~~M3 场外基金（前端）~~ | 已完成（77db678）：`/funds` 申请/确认页 + 守恒校验 + 分录详情 |
 | ~~M4 导入（后端）~~ | 已完成（5b80ace）：CSV/Excel、字段映射、去重、预览确认、期初资产 + 19 测试 |
 | ~~M4 导入（前端）~~ | 已完成（0fa2a63）：上传/预览/错误定位/确认/取消页面与 `/imports` 路由 |
-| M5 行情与收益 | Provider/Adapter、净值行情、快照、已实现/未实现盈亏、XIRR/TWR、回撤 |
+| ~~M5 行情与收益（后端）~~ | 已完成（d93ce0c）：MANUAL 行情/净值、双口径派生、XIRR/TWR/MDD、快照幂等重建 + 27 测试 |
+| M5 行情与收益（前端） | 行情/净值录入、估值与收益展示、快照重建入口（后端 API 已就绪） |
 | M6 风险与 Agent | 风险规则、确定性提醒、Agent 只读查询与草稿提案 |
 | 界面审查 | 用户定的流程：产品→UI/UX→前端实现→`impeccable` 审查；审查阶段尚未开始 |
 
@@ -229,6 +257,6 @@ M  backend/app/transactions/router.py
 
 ## 9. 建议的接手顺序
 
-1. ~~M2 前端闭环~~（b6cccd2）、~~M3 场外基金后端~~（b4ebed5）、~~M3 前端闭环~~（77db678）、~~M4 导入后端~~（5b80ace）、~~M4 导入前端~~（0fa2a63）。
-2. 下一步：M5 行情/收益 → M6 风险/Agent；或先插入界面审查阶段（`impeccable`）。
+1. ~~M2 前端闭环~~（b6cccd2）、~~M3 场外基金后端~~（b4ebed5）、~~M3 前端闭环~~（77db678）、~~M4 导入后端~~（5b80ace）、~~M4 导入前端~~（0fa2a63）、~~M5 行情与收益后端~~（d93ce0c）。
+2. 下一步：M5 前端闭环 → M6 风险/Agent；或先插入界面审查阶段（`impeccable`）。
 3. 每次改动后保持：`pytest` 全绿 → `ruff`/`mypy` 干净 → 实测 → 提交。
