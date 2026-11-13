@@ -5,6 +5,7 @@ import {
   ChartPie,
   Landmark,
   LayoutDashboard,
+  LineChart,
   Settings,
   Tags,
   Upload,
@@ -18,6 +19,7 @@ import { Transactions } from "./pages/Transactions"
 import { Positions } from "./pages/Positions"
 import { Funds } from "./pages/Funds"
 import { Imports } from "./pages/Imports"
+import { Market } from "./pages/Market"
 import { Placeholder } from "./pages/Placeholder"
 
 const NAV = [
@@ -25,6 +27,7 @@ const NAV = [
   { to: "/positions", label: "持仓", icon: ChartPie, title: "持仓" },
   { to: "/transactions", label: "交易", icon: ArrowLeftRight, title: "交易" },
   { to: "/funds", label: "基金", icon: Landmark, title: "场外基金" },
+  { to: "/market", label: "行情", icon: LineChart, title: "行情与收益" },
   { to: "/ledger", label: "账本", icon: BookText, title: "账本" },
   { to: "/imports", label: "导入", icon: Upload, title: "导入" },
   { to: "/accounts", label: "账户", icon: Wallet, title: "账户" },
@@ -73,6 +76,7 @@ export default function App() {
         <Route path="/positions" element={<Positions />} />
         <Route path="/transactions" element={<Transactions />} />
         <Route path="/funds" element={<Funds />} />
+        <Route path="/market" element={<Market />} />
         <Route path="/ledger" element={<Placeholder milestone="M1" description="复式记账分录流水，只读" />} />
         <Route path="/imports" element={<Imports />} />
         <Route path="/accounts" element={<Accounts />} />
