@@ -13,6 +13,7 @@ dependencies = [
     "psycopg[binary]>=3.2",
     "python-multipart>=0.0.33",
     "openpyxl>=3.1.5",
+    "mcp<2",
 ]
 
 [dependency-groups]

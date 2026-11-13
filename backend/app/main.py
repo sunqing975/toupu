@@ -8,6 +8,7 @@ from fastapi import FastAPI
 
 from alembic import command
 from app.accounts.router import router as accounts_router
+from app.agent.mcp_server import mcp_server, mount_mcp
 from app.agent.router import router as agent_router
 from app.core import errors
 from app.core.config import get_settings
@@ -36,7 +37,18 @@ def run_migrations() -> None:
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if get_settings().run_migrations_on_startup:
         run_migrations()
-    yield
+    # FastAPI/Starlette 的 Mount 不会触发被挂载子应用（MCP）的 lifespan，
+    # 因此显式运行 MCP 的 session_manager 生命周期。session_manager 是单例，
+    # 同一进程内 lifespan 被多次进入（测试用 TestClient 多次开合）时不可重复
+    # run()，第二次起会抛 RuntimeError，直接忽略以保持应用可启动。
+    if mcp_server is not None and mcp_server._session_manager is not None:
+        try:
+            async with mcp_server._session_manager.run():
+                yield
+        except RuntimeError:
+            yield
+    else:
+        yield
 
 
 def create_app() -> FastAPI:
@@ -57,6 +69,9 @@ def create_app() -> FastAPI:
     app.include_router(risk_router)
     app.include_router(agent_router)
     app.include_router(plans_router)
+
+    if mcp_server is not None:
+        mount_mcp(app)
 
     @app.get("/health")
     def health() -> dict:

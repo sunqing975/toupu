@@ -43,7 +43,7 @@ def list_entries(
     to_date: date | None = None,
     limit: int = Query(default=100, ge=1, le=500),
     db: Session = Depends(get_db),
-) -> list[JournalEntry]:
+) -> list[LedgerEntryOut]:
     """只读的复式记账分录流水。
 
     - 可选按主体投资账户过滤（该账户相关的证券/现金科目分录）。
@@ -72,16 +72,27 @@ def list_entries(
         .limit(limit)
     ).scalars()
 
-    result: list[JournalEntry] = []
+    result: list[LedgerEntryOut] = []
     for entry in entries:
-        lines = (
-            db.query(JournalLine, LedgerAccount.name)
-            .join(LedgerAccount, LedgerAccount.id == JournalLine.ledger_account_id)
-            .filter(JournalLine.entry_id == entry.id)
-            .order_by(JournalLine.line_no, JournalLine.id)
-            .all()
-        )
-        entry.lines = [
+        result.append(_entry_out(db, entry))
+    return result
+
+
+def _entry_out(db: Session, entry: JournalEntry) -> LedgerEntryOut:
+    lines = (
+        db.query(JournalLine, LedgerAccount.name)
+        .join(LedgerAccount, LedgerAccount.id == JournalLine.ledger_account_id)
+        .filter(JournalLine.entry_id == entry.id)
+        .order_by(JournalLine.line_no, JournalLine.id)
+        .all()
+    )
+    return LedgerEntryOut(
+        id=entry.id,
+        transaction_id=entry.transaction_id,
+        entry_type=entry.entry_type,
+        reversal_of_entry_id=entry.reversal_of_entry_id,
+        posted_at=entry.posted_at,
+        lines=[
             LedgerLineOut(
                 ledger_account_id=line.ledger_account_id,
                 ledger_account_name=name,
@@ -90,31 +101,13 @@ def list_entries(
                 line_no=line.line_no,
             )
             for line, name in lines
-        ]
-        result.append(entry)
-    return result
+        ],
+    )
 
 
 @router.get("/entries/{entry_id}", response_model=LedgerEntryOut)
-def get_entry(entry_id: uuid.UUID, db: Session = Depends(get_db)) -> JournalEntry:
+def get_entry(entry_id: uuid.UUID, db: Session = Depends(get_db)) -> LedgerEntryOut:
     entry = db.get(JournalEntry, entry_id)
     if entry is None:
         raise HTTPException(status_code=404, detail="分录不存在")
-    lines = (
-        db.query(JournalLine, LedgerAccount.name)
-        .join(LedgerAccount, LedgerAccount.id == JournalLine.ledger_account_id)
-        .filter(JournalLine.entry_id == entry.id)
-        .order_by(JournalLine.line_no, JournalLine.id)
-        .all()
-    )
-    entry.lines = [
-        LedgerLineOut(
-            ledger_account_id=line.ledger_account_id,
-            ledger_account_name=name,
-            direction=line.direction,
-            amount=line.amount,
-            line_no=line.line_no,
-        )
-        for line, name in lines
-    ]
-    return entry
+    return _entry_out(db, entry)

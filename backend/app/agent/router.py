@@ -1,61 +1,43 @@
 # Agent API：Token 管理（用户侧）+ 只读查询网关 + 待审批提案（docs/risk-agent-rules.md §7/§8/§9）。
 # 安全边界：/api/v1/agent 下除 POST /proposals 外只有 GET；无 /post /confirm /reverse。
+# 只读资源的查询逻辑抽到 app/agent/resources.py，供 REST 网关与 MCP server 共用。
 from __future__ import annotations
 
 import uuid
 from datetime import UTC, date, datetime, timedelta
-from decimal import Decimal
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.accounts.models import InvestmentAccount
+from app.agent.resources import (
+    accounts,
+    positions,
+    proposals,
+    quotes,
+    returns,
+    risk_events,
+    summary,
+    transactions,
+    valuation,
+)
+from app.agent.resources import (
+    plans as _plans,
+)
 from app.agent.security import (
     VALID_SCOPES,
-    Meta,
     generate_token,
     hash_token,
     log_success,
-    meta,
     require_scope,
 )
 from app.audit import record_audit
-from app.core.errors import BusinessError
 from app.db.session import get_db
-from app.market_data.models import FundNav, MarketQuote
-from app.performance.service import derive
 from app.plans.proposal_service import validate_payload
-from app.risk.models import (
-    AgentToken,
-    InvestmentPlan,
-    OperationProposal,
-    RiskEvent,
-)
-from app.transactions.models import InvestmentTransaction
+from app.risk.models import AgentToken, OperationProposal
 
 router = APIRouter(prefix="/api/v1/agent", tags=["agent"])
-
-
-def _jsonable(value: Any) -> Any:
-    """把 ORM/Decimal/UUID/date 递归转成 JSON 可序列化结构（金额一律字符串，禁 float）。"""
-    if isinstance(value, Decimal):
-        return format(value, "f")
-    if isinstance(value, uuid.UUID):
-        return str(value)
-    if isinstance(value, (date, datetime)):
-        return value.isoformat()
-    if isinstance(value, dict):
-        return {k: _jsonable(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_jsonable(v) for v in value]
-    return value
-
-
-def _rows(rows: list[Any], columns: list[str]) -> list[dict]:
-    return [{col: _jsonable(getattr(row, col)) for col in columns} for row in rows]
 
 
 class TokenIn(BaseModel):
@@ -84,7 +66,7 @@ class TokenCreated(BaseModel):
 
 class GatewayOut(BaseModel):
     data: list[dict]
-    meta: Meta
+    meta: Any
 
 
 class ProposalIn(BaseModel):
@@ -160,7 +142,7 @@ def revoke_token(token_id: uuid.UUID, db: Session = Depends(get_db)) -> AgentTok
     return token
 
 
-# ---------- 只读查询网关 ----------
+# ---------- 只读查询网关（委托 resources.py） ----------
 
 
 def _gate(x_agent_token: str | None, scope: str, resource: str, db: Session) -> AgentToken:
@@ -169,116 +151,40 @@ def _gate(x_agent_token: str | None, scope: str, resource: str, db: Session) -> 
     return token
 
 
+def _gateway(
+    x_agent_token: str | None, scope: str, resource: str, fetch, db: Session, *args
+) -> GatewayOut:
+    _gate(x_agent_token, scope, resource, db)
+    data, meta_obj = fetch(db, *args)
+    return GatewayOut(data=data, meta=meta_obj)
+
+
 @router.get("/accounts", response_model=GatewayOut)
 def agent_accounts(
     x_agent_token: str | None = Header(default=None), db: Session = Depends(get_db)
 ) -> GatewayOut:
-    _gate(x_agent_token, "read:accounts", "accounts", db)
-    rows = db.execute(select(InvestmentAccount).order_by(InvestmentAccount.name)).scalars().all()
-    columns = ["id", "name", "account_type", "currency", "status", "notes"]
-    return GatewayOut(data=_rows(list(rows), columns), meta=meta(str(date.today()), "ledger"))
+    return _gateway(x_agent_token, "read:accounts", "accounts", accounts, db)
 
 
 @router.get("/positions", response_model=GatewayOut)
 def agent_positions(
     x_agent_token: str | None = Header(default=None), db: Session = Depends(get_db)
 ) -> GatewayOut:
-    from app.positions.router import list_positions
-
-    _gate(x_agent_token, "read:positions", "positions", db)
-    positions = list_positions(None, db)
-    data = [
-        {
-            "account_id": str(p.account_id),
-            "instrument_id": str(p.instrument_id),
-            "instrument_code": p.instrument_code,
-            "instrument_name": p.instrument_name,
-            "instrument_type": p.instrument_type,
-            "quantity": format(p.quantity, "f"),
-            "total_cost": format(p.total_cost, "f"),
-            "unit_cost": format(p.unit_cost, "f"),
-        }
-        for p in positions
-    ]
-    return GatewayOut(data=data, meta=meta(str(date.today()), "ledger"))
+    return _gateway(x_agent_token, "read:positions", "positions", positions, db)
 
 
 @router.get("/transactions", response_model=GatewayOut)
 def agent_transactions(
     x_agent_token: str | None = Header(default=None), db: Session = Depends(get_db)
 ) -> GatewayOut:
-    _gate(x_agent_token, "read:transactions", "transactions", db)
-    rows = (
-        db.execute(
-            select(InvestmentTransaction)
-            .order_by(InvestmentTransaction.business_date.desc())
-            .limit(100)
-        )
-        .scalars()
-        .all()
-    )
-    columns = [
-        "id",
-        "account_id",
-        "counter_account_id",
-        "instrument_id",
-        "transaction_type",
-        "status",
-        "confirmation_status",
-        "business_date",
-        "currency",
-        "total_amount",
-        "memo",
-        "reversal_of_id",
-    ]
-    return GatewayOut(data=_rows(list(rows), columns), meta=meta(str(date.today()), "ledger"))
+    return _gateway(x_agent_token, "read:transactions", "transactions", transactions, db)
 
 
 @router.get("/quotes", response_model=GatewayOut)
 def agent_quotes(
     x_agent_token: str | None = Header(default=None), db: Session = Depends(get_db)
 ) -> GatewayOut:
-    _gate(x_agent_token, "read:market", "quotes", db)
-    quotes = db.execute(select(MarketQuote).limit(100)).scalars().all()
-    navs = db.execute(select(FundNav).limit(100)).scalars().all()
-    data = _rows(
-        list(quotes),
-        [
-            "id",
-            "instrument_id",
-            "quote_date",
-            "provider",
-            "data_type",
-            "price",
-            "quality_status",
-            "delayed",
-            "created_at",
-        ],
-    )
-    for row, q in zip(data, quotes, strict=False):
-        row["kind"] = "quote"
-        row["is_delayed"] = q.delayed
-    nav_data = _rows(
-        list(navs),
-        [
-            "id",
-            "instrument_id",
-            "nav_date",
-            "provider",
-            "data_type",
-            "nav",
-            "quality_status",
-            "created_at",
-        ],
-    )
-    for row in nav_data:
-        row["kind"] = "nav"
-        row["is_delayed"] = False
-    delayed = any(q.delayed for q in quotes)
-    return GatewayOut(
-        data=data + nav_data,
-        meta=meta(str(date.today()), "manual-quotes", is_delayed=delayed),
-    )
+    return _gateway(x_agent_token, "read:market", "quotes", quotes, db)
 
 
 @router.get("/valuation", response_model=GatewayOut)
@@ -287,32 +193,7 @@ def agent_valuation(
     x_agent_token: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> GatewayOut:
-    _gate(x_agent_token, "read:market", "valuation", db)
-    as_of = as_of or date.today()
-    try:
-        derived = derive(db, as_of)
-    except ValueError as exc:
-        raise BusinessError(str(exc)) from None
-    missing = [f"{p.instrument.code} ({p.quote.status})" for p in derived.positions if not p.valued]
-    has_estimate = any(p.quote.status == "ESTIMATED" for p in derived.positions)
-    rows = [
-        {
-            "account_id": str(p.account_id),
-            "instrument_code": p.instrument.code,
-            "instrument_name": p.instrument.name,
-            "quantity": format(p.quantity, "f"),
-            "book_cost": format(p.book_cost, "f"),
-            "quote_status": p.quote.status,
-            "quote_price": format(p.quote.price, "f") if p.quote.price is not None else None,
-            "market_value": format(p.market_value, "f") if p.market_value is not None else None,
-            "unrealized": format(p.unrealized, "f") if p.unrealized is not None else None,
-        }
-        for p in derived.positions
-    ]
-    return GatewayOut(
-        data=rows,
-        meta=meta(str(as_of), "valuation", is_estimate=has_estimate, missing=missing),
-    )
+    return _gateway(x_agent_token, "read:market", "valuation", valuation, db, as_of)
 
 
 @router.get("/summary", response_model=GatewayOut)
@@ -321,26 +202,7 @@ def agent_summary(
     x_agent_token: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> GatewayOut:
-    _gate(x_agent_token, "read:performance", "summary", db)
-    as_of = as_of or date.today()
-    try:
-        derived = derive(db, as_of)
-    except ValueError as exc:
-        raise BusinessError(str(exc)) from None
-    data = [
-        {
-            "as_of": str(as_of),
-            "cash_total": format(derived.cash_total, "f"),
-            "market_value": format(derived.market_value, "f"),
-            "total_assets": format(derived.total_assets, "f"),
-            "realized_total": format(derived.realized_total, "f"),
-            "dividend_income": format(derived.dividend_income, "f"),
-            "unrealized_total": format(derived.unrealized_total, "f"),
-            "coverage": format(derived.coverage, "f"),
-            "data_quality": derived.data_quality,
-        }
-    ]
-    return GatewayOut(data=data, meta=meta(str(as_of), "valuation"))
+    return _gateway(x_agent_token, "read:performance", "summary", summary, db, as_of)
 
 
 @router.get("/returns", response_model=GatewayOut)
@@ -349,80 +211,28 @@ def agent_returns(
     x_agent_token: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> GatewayOut:
-    from app.performance.router import returns
-
-    _gate(x_agent_token, "read:performance", "returns", db)
-    as_of = as_of or date.today()
-    result = returns(as_of, 7, db)
-    data = [
-        {
-            "metric": name,
-            "status": getattr(result, name).status,
-            "value": (
-                format(getattr(result, name).value, "f")
-                if getattr(result, name).value is not None
-                else None
-            ),
-            "reason": getattr(result, name).reason,
-        }
-        for name in ("xirr", "twr", "max_drawdown")
-    ]
-    missing = [str(d) for d in result.twr.missing]
-    return GatewayOut(data=data, meta=meta(str(as_of), "snapshots", missing=missing))
+    return _gateway(x_agent_token, "read:performance", "returns", returns, db, as_of)
 
 
 @router.get("/risk-events", response_model=GatewayOut)
 def agent_risk_events(
     x_agent_token: str | None = Header(default=None), db: Session = Depends(get_db)
 ) -> GatewayOut:
-    _gate(x_agent_token, "read:risk", "risk-events", db)
-    rows = (
-        db.execute(select(RiskEvent).order_by(RiskEvent.triggered_at.desc()).limit(100))
-        .scalars()
-        .all()
-    )
-    columns = [
-        "id",
-        "rule_id",
-        "as_of",
-        "scope",
-        "subject",
-        "rule_type",
-        "severity",
-        "trigger_value",
-        "threshold",
-        "message",
-        "status",
-        "triggered_at",
-    ]
-    return GatewayOut(data=_rows(list(rows), columns), meta=meta(str(date.today()), "risk-rules"))
+    return _gateway(x_agent_token, "read:risk", "risk-events", risk_events, db)
 
 
 @router.get("/plans", response_model=GatewayOut)
 def agent_plans(
     x_agent_token: str | None = Header(default=None), db: Session = Depends(get_db)
 ) -> GatewayOut:
-    _gate(x_agent_token, "read:plans", "plans", db)
-    rows = db.execute(select(InvestmentPlan).limit(100)).scalars().all()
-    columns = ["id", "name", "description", "status", "target_amount", "created_at"]
-    return GatewayOut(data=_rows(list(rows), columns), meta=meta(str(date.today()), "ledger"))
+    return _gateway(x_agent_token, "read:plans", "plans", _plans, db)
 
 
 @router.get("/proposals", response_model=GatewayOut)
 def agent_proposals(
     x_agent_token: str | None = Header(default=None), db: Session = Depends(get_db)
 ) -> GatewayOut:
-    _gate(x_agent_token, "read:proposals", "proposals", db)
-    rows = (
-        db.execute(
-            select(OperationProposal).order_by(OperationProposal.created_at.desc()).limit(100)
-        )
-        .scalars()
-        .all()
-    )
-    now = datetime.now(UTC)
-    data = [_proposal_out(row, now).model_dump(mode="json") for row in rows]
-    return GatewayOut(data=data, meta=meta(str(date.today()), "proposals"))
+    return _gateway(x_agent_token, "read:proposals", "proposals", proposals, db)
 
 
 # ---------- 提案创建（Agent 侧，唯一写端点：只建 PENDING） ----------
