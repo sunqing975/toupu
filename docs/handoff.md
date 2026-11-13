@@ -5,7 +5,7 @@
 
 ## 1. 一句话状态
 
-**M0~M6 前后端整段完成并提交**；**界面审查（`impeccable`）已完成**；**M7 Agent 框架 Phase 1-3 已完成并提交**：后端 **133 passed**、ruff/mypy 干净；前端 `tsc`/`vite build` 通过（2140 modules）。M7 含系统 skill 文档、对外 MCP 服务（只读资源 + 提案工具，X-Agent-Token 鉴权）、模型配置 CRUD、OpenAI 兼容分析会话（`/agent/chat`）、前端 `/agent` 页与中文别名 display_name。剩余：M7 Phase 4（挂载外部 MCP：AgentMcpServer 前端 + 通用客户端，在 chat 快照注入外部知识/工具）→ Phase 5 全量验收 → 提交。
+**M0~M6 前后端整段完成并提交**；**界面审查（`impeccable`）已完成**；**M7 Agent 框架 Phase 1-4 已完成并提交**：后端 **138 passed**、ruff/mypy 干净；前端 `tsc`/`vite build` 通过（2141 modules）。M7 含系统 skill 文档、对外 MCP 服务（只读资源 + 提案工具，X-Agent-Token 鉴权）、模型配置 CRUD、OpenAI 兼容分析会话（`/agent/chat`）、前端 `/agent` 页与中文别名 display_name、挂载外部 MCP（通用客户端 + 前端 CRUD + chat 注入外部知识）。剩余：M7 Phase 5 全量 E2E 验收。
 
 ## 2. 项目定位（摘要，详见 agent.md / README）
 
@@ -274,9 +274,9 @@ M  backend/app/transactions/router.py
   - **P2 帮助引导**：Risk/Plans 已有页面级微文案（确定性规则/缺失不伪装、Agent 只建提案不入账、计划不触发账务）；EmptyState 已覆盖首次使用引导，无需新增 tooltip 组件。
 - 验收：`npx tsc --noEmit` 退出 0；`npx vite build` 退出 0（2134 modules，dist 397.97 kB）。
 
-## 6.14 M7 Agent 框架 Phase 1-3（本次提交）
+## 6.14 M7 Agent 框架 Phase 1-4（本次提交）
 
-用户自定义目标（m03572/m03707）：理想 Agent 不是单页聊天，而是一套框架 —— ① 系统 skill 让 agent 知道怎么用 ② 本系统对外提供 MCP（其他 agent 可查询/生成投资计划）③ 系统内可配置模型 ④ 专门会话拿当前数据分析 ⑤ 后续用 MCP 对接外部知识库（如 weknora），需支持 mcp 挂载 + 对外提供 mcp 服务。
+用户自定义目标（m03572/m03707）：理想 Agent 不是单页聊天，而是一套框架 —— ① 系统 skill 让 agent 知道怎么用 ② 本系统对外提供 MCP（其他 agent 可查询/生成投资计划）③ 系统内可配置模型 ④ 专门会话拿当前数据分析 ⑤ 用 MCP 对接外部知识库（如 weknora），需支持 mcp 挂载 + 对外提供 mcp 服务。
 
 - **Phase 1（skill 文档）**：`docs/agent-skill.md`（§1-§8：系统说明/接入/鉴权/scope 白名单/只读资源 meta/提案工作流/安全红线/MCP 工具资源清单）。
 - **Phase 2（对外 MCP 服务）**：`app/agent/resources.py`（10 个只读资源函数，各返回 `(data, Meta)` + `RESOURCE_CATALOG`）；`app/agent/mcp_server.py`（`build_mcp_server` + `mount_mcp` + `AgentTokenMiddleware` + `current_agent_token` ContextVar；10 个只读 `@mcp.resource` 委托 resources，1 个 `@mcp.tool create_proposal`（write:proposals + validate_payload，只建 PENDING））；主 app 在 lifespan 显式 `mcp_server._session_manager.run()`（FastAPI `Mount` 不触子应用 lifespan）。挂载到 `/mcp/`。MCP SDK 锁 `mcp==1.30`（v2 重命名 FastMCP→MCPServer 且不兼容）。真实 HTTP E2E 已验证鉴权与工具调用。
@@ -286,7 +286,12 @@ M  backend/app/transactions/router.py
   - `app/agent/llm.py`：`chat(db, messages, model_id, temperature)` 调 OpenAI 兼容 `/chat/completions`（httpx）；无配置→`RuntimeError("尚未配置可用的模型")`。
   - `app/agent/chat_router.py`：`POST /api/v1/agent/chat`（拼只读快照 summary/valuation/returns/positions/risk_events/proposals + 用户问题 + 系统提示，模型只能看到只读数据、不直接写账本；`model_name` 优先 `display_name`）。
   - 前端：`/agent` 页（对话区：选模型/as_of/提问；模型配置区：表格/新建编辑/删除，密钥 password 不回显、留空不修改）；`api/models.ts`、`api/chat.ts`；`App.tsx` 加 NAV 与路由；`Settings.tsx` 收敛为「知识库/外部 MCP」诚实空态。
-- 验收：`uv run ruff check/fmt` 全绿、`uv run mypy app` Success 65 files、`uv run pytest -q` 133 passed；前端 `tsc`/`vite build` 均 0。
+- **Phase 4（挂载外部 MCP）**：
+  - `app/agent/mcp_client.py`：`fetch_external_knowledge(db)` 连接所有 enabled 的 `agent_mcp_servers`（stdio/http 通用客户端），只读取资源 + 列出工具名，**只读、不调用会修改外部系统的工具**；单个服务失败被吞掉并标注，绝不中断会话；`test_connection` 供前端「测试连接」。
+  - `app/agent/chat_router.py`：`_snapshot` 之后把外部知识拼进提示词第二段（标注「管理员已挂载的外部知识库」），并保留原生 snapshot 解析。
+  - `app/agent/mcp_router.py`：`/api/v1/agent/mcp-servers` CRUD（transport 仅 stdio/http；stdio 需 command、http 需 url；密钥无字段）+ `POST /{id}/test`（超时 20s）。
+  - 前端：`api/mcpServers.ts` + `Settings.tsx` 新增「外部 MCP 服务」区块（列表/添加/编辑/删除/测试连接），替代原「知识库/外部 MCP」空态；知识库单独诚实空态。
+- 验收：`uv run ruff check/fmt` 全绿、`uv run mypy app` Success 67 files、`uv run pytest -q` 138 passed（含 `test_agent_mcp.py` 5 用例：CRUD/transport 校验/test 连接容错/chat 注入外部知识/fetch 无服务返回空）；前端 `tsc`/`vite build` 均 0（2141 modules）。
 
 ## 7. 还没做
 
@@ -305,8 +310,8 @@ M  backend/app/transactions/router.py
 | ~~界面审查~~ | 已完成（029a58a）：impeccable Operate 审查 + P0/P1/P3 修复 + tsc/build 通过 |
 | ~~M7 账本页/设置页脚手架~~ | 已完成（3f8241e/6df6382）：账本只读接口 + 前端账本页/设置页 + 端口改 5180 |
 | ~~M7 Phase 1-2（skill + 对外 MCP）~~ | 已完成（c21980e）：系统 skill 文档 + 对外 MCP 服务 + 00010 迁移 + resources 重构 |
-| ~~M7 Phase 3（模型配置 + 分析会话 + 前端 Agent 页）~~ | 已完成（本次提交）：模型 CRUD + OpenAI 兼容客户端 + `/agent/chat` + 前端 `/agent` 页 + display_name 别名 |
-| M7 Phase 4（挂载外部 MCP） | 待做：`agent_mcp_servers` 表落地前端 + 通用 MCP 客户端（stdio/http），在 chat 快照里注入外部知识/工具 |
+| ~~M7 Phase 3（模型配置 + 分析会话 + 前端 Agent 页）~~ | 已完成（a75c89a）：模型 CRUD + OpenAI 兼容客户端 + `/agent/chat` + 前端 `/agent` 页 + display_name 别名 |
+| ~~M7 Phase 4（挂载外部 MCP）~~ | 已完成（本次提交）：`agent_mcp_servers` 前端 CRUD + 通用 MCP 客户端（stdio/http），chat 快照注入外部知识 + `/{id}/test` |
 | M7 Phase 5（验收） | 待做：Phase 4 合入后全量 E2E + 提交 |
 
 ## 8. 环境与工具坑（踩过的）
@@ -322,6 +327,6 @@ M  backend/app/transactions/router.py
 
 ## 9. 建议的接手顺序
 
-1. ~~M2 前端闭环~~（b6cccd2）、~~M3 场外基金后端~~（b4ebed5）、~~M3 前端闭环~~（77db678）、~~M4 导入后端~~（5b80ace）、~~M4 导入前端~~（0fa2a63）、~~M5 行情与收益后端~~（d93ce0c）、~~M5 前端闭环~~（95d2984）、~~M6 风险/Agent 后端~~（21efd98）、~~M6 前端~~（4e8b431）、~~界面审查~~（029a58a）、~~M7 Phase 1-3（skill + 对外 MCP + 模型配置 + 分析会话 + 前端 Agent 页）~~（本次提交）。
-2. 下一步：M7 Phase 4（挂载外部 MCP：AgentMcpServer 前端 + 通用客户端，在 chat 快照注入外部知识/工具）→ Phase 5 全量验收 → 提交。
+1. ~~M2 前端闭环~~（b6cccd2）、~~M3 场外基金后端~~（b4ebed5）、~~M3 前端闭环~~（77db678）、~~M4 导入后端~~（5b80ace）、~~M4 导入前端~~（0fa2a63）、~~M5 行情与收益后端~~（d93ce0c）、~~M5 前端闭环~~（95d2984）、~~M6 风险/Agent 后端~~（21efd98）、~~M6 前端~~（4e8b431）、~~界面审查~~（029a58a）、~~M7 Phase 1-4（skill + 对外 MCP + 模型配置 + 分析会话 + 前端 Agent 页 + 挂载外部 MCP）~~（本次提交）。
+2. 下一步：M7 Phase 5（全量 E2E + 提交）→ 收尾。
 3. 每次改动后保持：`pytest` 全绿 → `ruff`/`mypy` 干净 → 实测 → 提交。

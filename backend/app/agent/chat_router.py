@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.agent import llm
+from app.agent.mcp_client import fetch_external_knowledge
 from app.agent.models import AgentModel
 from app.agent.resources import (
     positions,
@@ -70,9 +71,14 @@ def agent_chat(payload: ChatIn, db: Session = Depends(get_db)) -> ChatOut:
         raise HTTPException(status_code=422, detail="as_of 日期格式应为 YYYY-MM-DD") from None
 
     snapshot = _snapshot(db, as_of)
+    external = fetch_external_knowledge(db, question=payload.question)
+    snapshot_block = f"以下是当前只读数据快照：\n{snapshot}"
+    if external:
+        snapshot_block += f"\n\n以下是管理员已挂载的外部知识库（只读，仅供分析参考）：\n{external}"
+
     messages = [
         {"role": "system", "content": _SYSTEM},
-        {"role": "user", "content": f"以下是当前只读数据快照：\n{snapshot}"},
+        {"role": "user", "content": snapshot_block},
         {"role": "user", "content": payload.question},
     ]
 
