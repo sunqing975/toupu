@@ -153,28 +153,34 @@ def test_chat_returns_answer_from_llm(monkeypatch):
     _create_model(is_default=True)
     captured = {}
 
-    def fake_chat(db, messages, *, model_id=None, temperature=0.3):
+    def fake_chat(
+        db, messages, tool_schemas, tool_executor, *, model_id=None, temperature=0.3, max_rounds=6
+    ):
         captured["messages"] = messages
         captured["model_id"] = model_id
+        captured["tool_schemas"] = tool_schemas
         return "根据只读快照，你的组合整体风险可控。"
 
-    monkeypatch.setattr(llm, "chat", fake_chat)
+    monkeypatch.setattr(llm, "chat_with_tools", fake_chat)
 
     resp = client.post(
         "/api/v1/agent/chat",
-        json={"question": "给我一个简要分析", "as_of": "2026-11-13"},
+        json={"question": "给我一个简要分析"},
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["answer"] == "根据只读快照，你的组合整体风险可控。"
-    assert body["as_of"] == "2026-11-13"
-    # 快照必须被注入到消息里，且来自只读资源
+    assert body["agent_name"]
+    # 工具循环必须启用：模型被请求调用（首轮含 tool_calls）或最终文本；
+    # 此处 mock 直接返回文本，断言系统提示与用户问题已注入。
     joined = "\n".join(m["content"] for m in captured["messages"])
-    assert "只读数据快照" in joined
-    assert "组合概览" in joined
-    assert "持仓" in joined
+    assert "只读数据快照" not in joined  # 新口径不再预拼快照，工具按需拉取
+    assert "给我一个简要分析" in joined
 
 
-def test_chat_bad_as_of_rejected():
-    resp = client.post("/api/v1/agent/chat", json={"question": "x", "as_of": "2026/13/99"})
-    assert resp.status_code == 422, resp.text
+def test_chat_unknown_agent_404():
+    resp = client.post(
+        "/api/v1/agent/chat",
+        json={"question": "x", "agent_id": "00000000-0000-0000-0000-000000000099"},
+    )
+    assert resp.status_code == 404, resp.text

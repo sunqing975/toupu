@@ -1,4 +1,4 @@
-# Agent 框架 ORM：逐列对齐 0010 迁移 DDL（原生 op.execute，不可多写列）。
+# Agent 框架 ORM：逐列对齐迁移 DDL（原生 op.execute，不可多写列）。
 import uuid
 from datetime import datetime
 
@@ -34,3 +34,36 @@ class AgentMcpServer(Base):
     config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AgentSkill(Base):
+    __tablename__ = "agent_skills"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    key: Mapped[str] = mapped_column(Text, unique=True)
+    name: Mapped[str] = mapped_column(Text)
+    description: Mapped[str] = mapped_column(Text, default="")
+    icon: Mapped[str | None] = mapped_column(Text, nullable=True)
+    category: Mapped[str] = mapped_column(String(30), default="analysis")
+    builtin: Mapped[bool] = mapped_column(Boolean, default=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AgentDefinition(Base):
+    __tablename__ = "agent_definitions"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    key: Mapped[str] = mapped_column(Text, unique=True)
+    name: Mapped[str] = mapped_column(Text)
+    description: Mapped[str] = mapped_column(Text, default="")
+    icon: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_builtin: Mapped[bool] = mapped_column(Boolean, default=False)
+    avatar_color: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    system_prompt: Mapped[str] = mapped_column(Text, default="")
+    model_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    enabled_skill_keys: Mapped[list] = mapped_column(JSONB, default=list)
+    mcp_server_ids: Mapped[list] = mapped_column(JSONB, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
