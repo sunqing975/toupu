@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from alembic import command
 from app.accounts.router import router as accounts_router
 from app.agent.chat_router import router as agent_chat_router
+from app.agent.conversations import router as agent_conversations_router
 from app.agent.definitions_router import router as agent_definitions_router
 from app.agent.mcp_router import router as agent_mcp_router
 from app.agent.mcp_server import mcp_server, mount_mcp
@@ -74,6 +75,7 @@ def create_app() -> FastAPI:
     app.include_router(agent_router)
     app.include_router(agent_models_router)
     app.include_router(agent_definitions_router)
+    app.include_router(agent_conversations_router)
     app.include_router(agent_chat_router)
     app.include_router(agent_mcp_router)
     app.include_router(plans_router)

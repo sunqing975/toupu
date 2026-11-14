@@ -102,6 +102,10 @@ class AgentDefinitionOut(BaseModel):
     updated_at: datetime
 
 
+class SkillPatch(BaseModel):
+    enabled: bool
+
+
 class AgentDefinitionIn(BaseModel):
     key: str
     name: str
@@ -163,6 +167,29 @@ def list_skills(db: Session = Depends(get_db)) -> list[AgentSkill]:
         .scalars()
         .all()
     )
+
+
+def globally_enabled_keys(db: Session) -> set[str]:
+    """技能总开关：被停用的技能对所有 Agent 都不注入（用户反馈「技能管理界面」）。"""
+    ensure_builtin(db)
+    return set(
+        db.execute(select(AgentSkill.key).where(AgentSkill.enabled.is_(True))).scalars().all()
+    )
+
+
+@router.patch("/skills/{skill_key}", response_model=SkillOut)
+def toggle_skill(skill_key: str, payload: SkillPatch, db: Session = Depends(get_db)) -> SkillOut:
+    """静态 /skills/{skill_key} 必须排在 /{agent_id} 之前注册，否则会被当成 agent_id。"""
+    ensure_builtin(db)
+    if skill_key not in skills_mod.SKILLS:
+        raise HTTPException(status_code=404, detail="技能不存在")
+    row = db.execute(select(AgentSkill).where(AgentSkill.key == skill_key)).scalars().first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="技能不存在")
+    row.enabled = payload.enabled
+    db.commit()
+    db.refresh(row)
+    return SkillOut.model_validate(row, from_attributes=True)
 
 
 @router.get("/{agent_id}", response_model=AgentDefinitionOut)

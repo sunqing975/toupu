@@ -2,6 +2,7 @@ import { Navigate, NavLink, Outlet, Route, Routes, useLocation } from "react-rou
 import {
   ArrowLeftRight,
   BookText,
+  Blocks,
   Bot,
   ChartPie,
   Landmark,
@@ -28,10 +29,12 @@ import { Plans } from "./pages/Plans"
 import { Ledger } from "./pages/Ledger"
 import { Settings } from "./pages/Settings"
 import { Agent } from "./pages/Agent"
+import { Skills } from "./pages/Skills"
 
 
 const NAV = [
   { to: "/agent", label: "助手", icon: Bot, title: "投资助手" },
+  { to: "/skills", label: "技能", icon: Blocks, title: "技能管理" },
   { to: "/", label: "总览", icon: LayoutDashboard, title: "总览" },
   { to: "/positions", label: "持仓", icon: ChartPie, title: "持仓" },
   { to: "/transactions", label: "交易", icon: ArrowLeftRight, title: "交易" },
@@ -96,6 +99,7 @@ export default function App() {
         <Route path="/instruments" element={<Instruments />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/agent" element={<Agent />} />
+        <Route path="/skills" element={<Skills />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

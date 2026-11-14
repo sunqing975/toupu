@@ -1,15 +1,31 @@
-import { useEffect, useMemo, useState } from "react"
-import { Bot, Check, KeyRound, MessageSquare, Plus, Settings2, Sparkles, Trash2, Wrench, X } from "lucide-react"
-import { agentsApi, SKILL_CATEGORY_LABELS, type AgentDefinition, type AgentDefinitionIn, type AgentSkill } from "../api/agents"
+import { useEffect, useMemo, useRef, useState } from "react"
+import {
+  Bot,
+  Check,
+  KeyRound,
+  MessageSquare,
+  Plus,
+  Send,
+  Settings2,
+  Trash2,
+  X,
+} from "lucide-react"
+import {
+  agentsApi,
+  SKILL_CATEGORY_LABELS,
+  type AgentDefinition,
+  type AgentDefinitionIn,
+  type AgentSkill,
+} from "../api/agents"
 import { modelsApi, type AgentModel } from "../api/models"
 import { chatApi } from "../api/chat"
+import { conversationsApi, type Conversation, type ConversationMessage } from "../api/conversations"
 import { Dialog } from "../components/Dialog"
-import { EmptyState } from "../components/EmptyState"
 import { Skeleton } from "../components/Skeleton"
 import { useToast } from "../components/Toast"
 
-// —— 对齐 WeKnora：Agent 是一等实体（列表卡片 + 编辑器），技能是可勾选目录。——
-// 一个对话页同时容纳：选中的 Agent、其启用的技能、以及基于该 Agent 的会话。
+// 用户反馈 (m05823)：正经的对话框 = 左侧历史会话 + 右侧消息区（顶部标题栏/模型选择 + 底部输入）。
+// 历史会话存库、可回看续聊；模型可在对话框顶部直接切换。
 
 interface ChatMessage {
   role: "user" | "assistant"
@@ -28,8 +44,8 @@ const SUGGESTIONS = [
 
 const AVATAR_COLORS = ["#1e40af", "#059669", "#b45309", "#7c3aed", "#be123c", "#0e7490"]
 
-function now(): string {
-  return new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })
+function fmtTime(v: string): string {
+  return new Date(v).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })
 }
 
 interface AgentForm {
@@ -54,7 +70,6 @@ const EMPTY_FORM: AgentForm = {
   enabled_skill_keys: [],
 }
 
-// 分类分组，供编辑器里按组勾选
 function groupSkills(skills: AgentSkill[]): Record<string, AgentSkill[]> {
   const out: Record<string, AgentSkill[]> = {}
   for (const s of skills) {
@@ -73,10 +88,14 @@ export function Agent() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
-  // 会话
+  // 历史会话
+  const [conversations, setConversations] = useState<Conversation[] | null>(null)
+  const [activeConvId, setActiveConvId] = useState<string | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [typing, setTyping] = useState(false)
   const [question, setQuestion] = useState("")
+  const [modelId, setModelId] = useState<string>("") // 对话框顶部临时换模型（"" = 跟随 Agent/默认）
+  const messagesEndRef = useRef<HTMLDivElement | null>(null)
 
   // 编辑器
   const [editorOpen, setEditorOpen] = useState(false)
@@ -84,7 +103,7 @@ export function Agent() {
   const [form, setForm] = useState<AgentForm>(EMPTY_FORM)
   const [busy, setBusy] = useState(false)
 
-  const loadAll = () => {
+  const loadAgents = () => {
     setAgents(null)
     setLoadError(null)
     Promise.all([agentsApi.list(), agentsApi.skills(), modelsApi.list()])
@@ -97,12 +116,58 @@ export function Agent() {
       .catch((e) => setLoadError(e instanceof Error ? e.message : String(e)))
   }
 
-  useEffect(loadAll, [])
+  const loadConversations = () => {
+    conversationsApi
+      .list()
+      .then(setConversations)
+      .catch(() => setConversations([]))
+  }
 
-  // 切换 Agent 时清空会话（不同人格不共用历史）
   useEffect(() => {
+    loadAgents()
+    loadConversations()
+  }, [])
+
+  const openConversation = async (id: string) => {
+    setActiveConvId(id)
     setMessages([])
-  }, [selectedId])
+    try {
+      const detail = await conversationsApi.get(id)
+      setMessages(
+        detail.messages.map((m: ConversationMessage) => ({
+          role: m.role,
+          content: m.content,
+          agentName: m.agent_name,
+          modelName: m.model_name,
+          createdAt: fmtTime(m.created_at),
+        })),
+      )
+    } catch (e) {
+      toast("error", e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  const newConversation = () => {
+    setActiveConvId(null)
+    setMessages([])
+    setQuestion("")
+  }
+
+  const removeConversation = async (c: Conversation) => {
+    if (!confirm(`删除会话「${c.title || "未命名"}」？此操作不可恢复。`)) return
+    try {
+      await conversationsApi.remove(c.id)
+      if (activeConvId === c.id) newConversation()
+      loadConversations()
+      toast("success", "会话已删除")
+    } catch (e) {
+      toast("error", e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+  }, [messages, typing])
 
   const selected = useMemo(
     () => (agents ?? []).find((a) => a.id === selectedId) ?? null,
@@ -116,7 +181,6 @@ export function Agent() {
     setForm({
       ...EMPTY_FORM,
       avatar_color: AVATAR_COLORS[(agents?.length ?? 0) % AVATAR_COLORS.length],
-      // 新建默认给一组常用只读/分析技能，避免开箱零工具
       enabled_skill_keys: (skills ?? [])
         .filter((s) => s.category === "data" || s.category === "analysis")
         .map((s) => s.key),
@@ -174,7 +238,6 @@ export function Agent() {
         mcp_server_ids: editing ? editing.mcp_server_ids : [],
       }
       if (editing) {
-        // PATCH 不含 key（后端不允许改 key）
         const { key: _key, ...patch } = payload
         void _key
         await agentsApi.update(editing.id, patch)
@@ -184,7 +247,7 @@ export function Agent() {
         toast("success", "Agent 已创建")
       }
       setEditorOpen(false)
-      loadAll()
+      loadAgents()
     } catch (e) {
       toast("error", e instanceof Error ? e.message : String(e))
     } finally {
@@ -197,9 +260,8 @@ export function Agent() {
     if (!confirm(`确定删除 Agent「${a.name}」？此操作不可恢复。`)) return
     try {
       await agentsApi.remove(a.id)
-      toast("success", "已删除")
       if (selectedId === a.id) setSelectedId(null)
-      loadAll()
+      loadAgents()
     } catch (e) {
       toast("error", e instanceof Error ? e.message : String(e))
     }
@@ -219,11 +281,16 @@ export function Agent() {
       return
     }
     const q = question.trim()
-    setMessages((m) => [...m, { role: "user", content: q, createdAt: now() }])
+    setMessages((m) => [...m, { role: "user", content: q, createdAt: "现在" }])
     setQuestion("")
     setTyping(true)
     try {
-      const res = await chatApi.ask({ question: q, agent_id: selected.id })
+      const res = await chatApi.ask({
+        question: q,
+        agent_id: selected.id,
+        conversation_id: activeConvId,
+        model_id: modelId || null,
+      })
       setMessages((m) => [
         ...m,
         {
@@ -231,9 +298,13 @@ export function Agent() {
           content: res.answer,
           agentName: res.agent_name,
           modelName: res.model_name,
-          createdAt: now(),
+          createdAt: "现在",
         },
       ])
+      if (activeConvId !== res.conversation_id) {
+        setActiveConvId(res.conversation_id)
+      }
+      loadConversations()
     } catch (e) {
       toast("error", e instanceof Error ? e.message : String(e))
     } finally {
@@ -241,15 +312,13 @@ export function Agent() {
     }
   }
 
-  const useSuggestion = (text: string) => setQuestion(text)
-
   return (
     <div className="page">
       <div className="page__head">
         <div>
           <h2 className="page__title">助手</h2>
           <p className="page__sub">
-            Agent 是一等实体：每个助手绑定模型、系统提示词与一组可调用的技能。模型只在工具循环里使用这些技能，不直接改动账本。
+            每个助手绑定模型、系统提示词与一组技能。选择助手后在对话框里提问，历史会话自动保存，可回看续聊。
           </p>
         </div>
         <button className="btn btn--primary" onClick={openCreate}>
@@ -259,209 +328,211 @@ export function Agent() {
 
       {loadError && <div className="alert alert--error">{loadError}</div>}
 
-      {/* —— Agent 卡片列表（对齐 WeKnora AgentList）—— */}
-      <div className="agent-grid">
+      {/* —— Agent 选择器（紧凑，不再是主视觉）—— */}
+      <div className="agent-strip">
         {agents === null ? (
-          <Skeleton rows={3} />
-        ) : agents.length === 0 ? (
-          <EmptyState
-            icon={<Bot size={40} aria-hidden />}
-            title="还没有 Agent"
-            description="创建一个绑定模型与技能的助手。"
-            action={<button className="btn btn--primary" onClick={openCreate}>新建 Agent</button>}
-          />
+          <Skeleton rows={1} />
         ) : (
           agents.map((a) => (
             <button
               key={a.id}
               type="button"
-              className={`agent-card${selectedId === a.id ? " agent-card--active" : ""}`}
+              className={`agent-chip${selectedId === a.id ? " agent-chip--active" : ""}`}
               onClick={() => setSelectedId(a.id)}
             >
               <span
-                className="agent-card__avatar"
+                className="agent-chip__dot"
                 style={{ backgroundColor: a.avatar_color ?? AVATAR_COLORS[0] }}
                 aria-hidden
+              />
+              {a.name}
+              {a.is_builtin && <span className="tag">内置</span>}
+              <span
+                role="button"
+                tabIndex={0}
+                className="agent-chip__edit"
+                aria-label={`编辑 ${a.name}`}
+                onClick={(e) => { e.stopPropagation(); openEdit(a) }}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); openEdit(a) } }}
               >
-                <Bot size={20} />
+                <Settings2 size={12} aria-hidden />
               </span>
-              <span className="agent-card__body">
-                <span className="agent-card__title">
-                  {a.name}
-                  {a.is_builtin && <span className="tag">内置</span>}
-                </span>
-                <span className="agent-card__desc">{a.description || "暂无描述"}</span>
-                <span className="agent-card__meta">
-                  <Wrench size={12} aria-hidden /> {a.enabled_skill_keys.length} 项技能
-                  {a.model_id && <> · 指定模型</>}
-                </span>
-              </span>
-              <span className="agent-card__actions">
+              {!a.is_builtin && (
                 <span
                   role="button"
                   tabIndex={0}
-                  className="btn btn--ghost agent-card__edit"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    openEdit(a)
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.stopPropagation()
-                      openEdit(a)
-                    }
-                  }}
+                  className="agent-chip__edit"
+                  aria-label={`删除 ${a.name}`}
+                  onClick={(e) => { e.stopPropagation(); removeAgent(a) }}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); removeAgent(a) } }}
                 >
-                  <Settings2 size={14} aria-hidden />
+                  <Trash2 size={12} aria-hidden />
                 </span>
-                {!a.is_builtin && (
-                  <span
-                    role="button"
-                    tabIndex={0}
-                    className="btn btn--ghost agent-card__edit"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      removeAgent(a)
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.stopPropagation()
-                        removeAgent(a)
-                      }
-                    }}
-                  >
-                    <Trash2 size={14} aria-hidden />
-                  </span>
-                )}
-              </span>
+              )}
             </button>
           ))
         )}
       </div>
 
-      {/* —— 选中 Agent 的能力摘要 —— */}
-      {selected && (
-        <section className="card">
-          <div className="card__head">
-            <div>
-              <h3 className="card__title">
-                <Sparkles size={16} aria-hidden /> {selected.name} · 已启用技能
-              </h3>
-              <p className="page__sub">
-                模型在本会话中只能调用下列技能；{selected.model_id ? "已指定专属模型" : "使用默认模型"}。
-              </p>
-            </div>
-            <button className="btn btn--ghost" onClick={() => openEdit(selected)}>
-              <Settings2 size={14} aria-hidden /> 编辑配置
-            </button>
-          </div>
-          <div className="skill-pills">
-            {selected.enabled_skill_keys.length === 0 ? (
-              <p className="muted">尚未启用任何技能，该 Agent 只能做纯文本问答。</p>
-            ) : (
-              selected.enabled_skill_keys.map((k) => {
-                const sk = (skills ?? []).find((s) => s.key === k)
-                return (
-                  <span key={k} className="tag" title={sk?.description}>
-                    {sk?.name ?? k}
-                  </span>
-                )
-              })
-            )}
-          </div>
-        </section>
+      {models.length === 0 && (
+        <div className="alert alert--info" style={{ marginBottom: 16 }}>
+          <KeyRound size={14} aria-hidden /> 还没有配置模型。请到「设置 → 模型配置」添加 OpenAI 兼容端点后，助手才能进行分析。
+        </div>
       )}
 
-      {/* —— 会话（基于选中 Agent，无 as_of / 模型选择）—— */}
-      <section className="card">
-        <div className="card__head">
-          <div>
-            <h3 className="card__title">
-              <MessageSquare size={16} aria-hidden /> 分析会话
-            </h3>
-            <p className="page__sub">
-              {selected ? `当前助手：${selected.name}` : "请先在上方选择一个 Agent"} · 模型按需调用已启用技能；写入类操作只生成待审批草稿。
-            </p>
+      {/* —— 正经对话框：左历史会话 + 右消息区 —— */}
+      <div className="chat-workspace">
+        <aside className="chat-sidebar">
+          <div className="chat-sidebar__head">
+            <span><MessageSquare size={14} aria-hidden /> 历史会话</span>
+            <button className="btn btn--ghost btn--icon" onClick={newConversation} title="新建会话" aria-label="新建会话">
+              <Plus size={14} aria-hidden />
+            </button>
           </div>
-        </div>
-
-        {messages.length === 0 && !typing ? (
-          <div className="chat__empty">
-            <Bot size={40} aria-hidden />
-            <div>
-              <p style={{ color: "var(--color-foreground)", fontWeight: 600 }}>开始一次分析对话</p>
-              <p className="page__sub">提出关于持仓、收益、风险或投资计划的问题。</p>
-            </div>
-            <div className="chips">
-              {SUGGESTIONS.map((s) => (
-                <button key={s} className="chip" onClick={() => useSuggestion(s)}>
-                  {s}
-                </button>
+          {conversations === null ? (
+            <Skeleton rows={3} />
+          ) : conversations.length === 0 ? (
+            <p className="chat-sidebar__empty muted">暂无历史会话</p>
+          ) : (
+            <div className="chat-sidebar__list">
+              {conversations.map((c) => (
+                <div
+                  key={c.id}
+                  className={`chat-session${activeConvId === c.id ? " chat-session--active" : ""}`}
+                  onClick={() => openConversation(c.id)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => { if (e.key === "Enter") openConversation(c.id) }}
+                >
+                  <span className="chat-session__title">{c.title || "未命名会话"}</span>
+                  <span className="chat-session__meta">
+                    {c.message_count} 条 · {fmtTime(c.updated_at)}
+                  </span>
+                  <button
+                    className="btn btn--ghost btn--icon chat-session__del"
+                    aria-label="删除会话"
+                    onClick={(e) => { e.stopPropagation(); removeConversation(c) }}
+                  >
+                    <Trash2 size={12} aria-hidden />
+                  </button>
+                </div>
               ))}
             </div>
-          </div>
-        ) : (
-          <div className="chat__messages">
-            {messages.map((m, i) => (
-              <div key={i} className={`msg ${m.role === "user" ? "msg--user" : "msg--bot"}`}>
-                <div className={`msg__avatar ${m.role === "user" ? "" : "msg__avatar--bot"}`}>
-                  {m.role === "user" ? "你" : <Bot size={16} aria-hidden />}
+          )}
+        </aside>
+
+        <section className="chat-panel">
+          {/* 标题栏：Agent 名 + 已启用技能 + 模型下拉（对话框内直接换模型） */}
+          <header className="chat-panel__head">
+            <div className="chat-panel__who">
+              <Bot size={18} aria-hidden />
+              <div>
+                <strong>{selected ? selected.name : "请选择助手"}</strong>
+                <span className="muted">
+                  {selected ? `${selected.enabled_skill_keys.length} 项技能 · 写入仅生成草稿` : "—"}
+                </span>
+              </div>
+            </div>
+            <label className="chat-panel__model">
+              <span className="muted">模型</span>
+              <select
+                className="select"
+                value={modelId}
+                onChange={(e) => setModelId(e.target.value)}
+                title="本会话临时使用的模型（覆盖助手默认）"
+              >
+                <option value="">跟随助手 / 默认</option>
+                {models.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.display_name?.trim() || m.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </header>
+
+          {/* 消息区 */}
+          <div className="chat-panel__body">
+            {messages.length === 0 && !typing ? (
+              <div className="chat__empty">
+                <Bot size={40} aria-hidden />
+                <div>
+                  <p style={{ color: "var(--color-foreground)", fontWeight: 600 }}>开始一次分析对话</p>
+                  <p className="page__sub">提出关于持仓、收益、风险或投资计划的问题。历史会自动保存。</p>
                 </div>
-                <div className="msg__body">
-                  <div className={`msg__bubble ${m.role === "user" ? "msg__bubble--user" : "msg__bubble--bot"}`}>
-                    {m.content}
-                  </div>
-                  {m.role === "assistant" && (
-                    <details className="evidence">
-                      <summary>分析依据</summary>
-                      <div className="evidence__body">
-                        <span>助手：{m.agentName || "—"}</span>
-                        <span>模型：{m.modelName || "默认模型"}</span>
-                        <span>数据范围：由该助手启用的只读/分析技能按需拉取</span>
-                        <span>说明：会话未改动账本；可执行操作需你在网页端确认。</span>
-                      </div>
-                    </details>
-                  )}
-                  <span className="msg__meta">{m.createdAt}</span>
+                <div className="chips">
+                  {SUGGESTIONS.map((s) => (
+                    <button key={s} className="chip" onClick={() => setQuestion(s)}>
+                      {s}
+                    </button>
+                  ))}
                 </div>
               </div>
-            ))}
-            {typing && (
-              <div className="msg msg--bot">
-                <div className="msg__avatar msg__avatar--bot">
-                  <Bot size={16} aria-hidden />
-                </div>
-                <div className="msg__body">
-                  <div className="msg__bubble msg__bubble--bot">
-                    <span className="typing"><span /><span /><span /></span>
+            ) : (
+              <div className="chat__messages">
+                {messages.map((m, i) => (
+                  <div key={i} className={`msg ${m.role === "user" ? "msg--user" : "msg--bot"}`}>
+                    <div className={`msg__avatar ${m.role === "user" ? "" : "msg__avatar--bot"}`}>
+                      {m.role === "user" ? "你" : <Bot size={16} aria-hidden />}
+                    </div>
+                    <div className="msg__body">
+                      <div className={`msg__bubble ${m.role === "user" ? "msg__bubble--user" : "msg__bubble--bot"}`}>
+                        {m.content}
+                      </div>
+                      {m.role === "assistant" && (
+                        <details className="evidence">
+                          <summary>分析依据</summary>
+                          <div className="evidence__body">
+                            <span>助手：{m.agentName || "—"}</span>
+                            <span>模型：{m.modelName || "默认模型"}</span>
+                            <span>数据范围：由该助手启用的只读/分析技能按需拉取</span>
+                            <span>说明：会话未改动账本；可执行操作需你在网页端确认。</span>
+                          </div>
+                        </details>
+                      )}
+                      <span className="msg__meta">{m.createdAt}</span>
+                    </div>
                   </div>
-                </div>
+                ))}
+                {typing && (
+                  <div className="msg msg--bot">
+                    <div className="msg__avatar msg__avatar--bot"><Bot size={16} aria-hidden /></div>
+                    <div className="msg__body">
+                      <div className="msg__bubble msg__bubble--bot">
+                        <span className="typing"><span /><span /><span /></span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                <div ref={messagesEndRef} />
               </div>
             )}
           </div>
-        )}
 
-        <div className="chat__composer">
-          <textarea
-            className="input"
-            rows={3}
-            value={question}
-            placeholder="例如：我当前组合的整体风险如何？有哪些持仓占比偏高？"
-            onChange={(e) => setQuestion(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                e.preventDefault()
-                ask()
-              }
-            }}
-          />
-          <div className="composer__row" style={{ justifyContent: "flex-end" }}>
-            <button className="btn btn--primary" onClick={ask} disabled={typing || !selected}>
-              {typing ? "分析中…" : "分析"}
-            </button>
+          {/* 输入区 */}
+          <div className="chat__composer">
+            <textarea
+              className="input"
+              rows={3}
+              value={question}
+              placeholder="例如：我当前组合的整体风险如何？有哪些持仓占比偏高？"
+              onChange={(e) => setQuestion(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault()
+                  ask()
+                }
+              }}
+            />
+            <div className="composer__row" style={{ justifyContent: "space-between" }}>
+              <span className="muted" style={{ fontSize: 12 }}>Ctrl/⌘ + Enter 发送 · 历史自动保存到左侧</span>
+              <button className="btn btn--primary" onClick={ask} disabled={typing || !selected}>
+                <Send size={14} aria-hidden /> {typing ? "分析中…" : "发送"}
+              </button>
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      </div>
 
       {/* —— Agent 编辑器（对齐 WeKnora AgentEditorModal）—— */}
       <Dialog
@@ -473,56 +544,28 @@ export function Agent() {
           <div className="grid-2">
             <label className="field">
               <span className="field__label">名称</span>
-              <input
-                className="input"
-                value={form.name}
-                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                placeholder="例如：价值投资分析师"
-              />
+              <input className="input" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="例如：价值投资分析师" />
             </label>
             <label className="field">
               <span className="field__label">唯一标识 key</span>
-              <input
-                className="input"
-                value={form.key}
-                disabled={!!editing}
-                onChange={(e) => setForm((f) => ({ ...f, key: e.target.value }))}
-                placeholder="例如：value-analyst"
-              />
+              <input className="input" value={form.key} disabled={!!editing} onChange={(e) => setForm((f) => ({ ...f, key: e.target.value }))} placeholder="例如：value-analyst" />
             </label>
           </div>
           <label className="field">
             <span className="field__label">描述</span>
-            <input
-              className="input"
-              value={form.description}
-              onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-              placeholder="一句话说明这个助手擅长什么"
-            />
+            <input className="input" value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} placeholder="一句话说明这个助手擅长什么" />
           </label>
           <label className="field">
             <span className="field__label">系统提示词</span>
-            <textarea
-              className="textarea"
-              rows={4}
-              value={form.system_prompt}
-              onChange={(e) => setForm((f) => ({ ...f, system_prompt: e.target.value }))}
-              placeholder="定义角色、边界与回答风格。留空则使用内置保守提示词。"
-            />
+            <textarea className="textarea" rows={4} value={form.system_prompt} onChange={(e) => setForm((f) => ({ ...f, system_prompt: e.target.value }))} placeholder="定义角色、边界与回答风格。留空则使用内置保守提示词。" />
           </label>
           <div className="grid-2">
             <label className="field">
               <span className="field__label">模型</span>
-              <select
-                className="select"
-                value={form.model_id}
-                onChange={(e) => setForm((f) => ({ ...f, model_id: e.target.value }))}
-              >
+              <select className="select" value={form.model_id} onChange={(e) => setForm((f) => ({ ...f, model_id: e.target.value }))}>
                 <option value="">默认模型（设置里维护）</option>
                 {models.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.display_name?.trim() || m.name}
-                  </option>
+                  <option key={m.id} value={m.id}>{m.display_name?.trim() || m.name}</option>
                 ))}
               </select>
             </label>
@@ -545,20 +588,15 @@ export function Agent() {
             </label>
           </div>
 
-          {/* 技能目录：按分类分组勾选 */}
           <div className="field">
-            <span className="field__label">
-              技能（{form.enabled_skill_keys.length} 项已启用）
-            </span>
+            <span className="field__label">技能（{form.enabled_skill_keys.length} 项已启用）</span>
             {skills === null ? (
               <Skeleton rows={3} />
             ) : (
               <div className="skill-picker">
                 {Object.entries(skillsByCat).map(([cat, items]) => (
                   <div key={cat} className="skill-group">
-                    <div className="skill-group__title">
-                      {SKILL_CATEGORY_LABELS[cat] ?? cat}
-                    </div>
+                    <div className="skill-group__title">{SKILL_CATEGORY_LABELS[cat] ?? cat}</div>
                     <div className="skill-group__items">
                       {items.map((s) => {
                         const on = form.enabled_skill_keys.includes(s.key)
@@ -583,22 +621,11 @@ export function Agent() {
           </div>
 
           <div className="dialog__foot">
-            <button className="btn btn--ghost" onClick={() => setEditorOpen(false)}>
-              <X size={14} aria-hidden /> 取消
-            </button>
-            <button className="btn btn--primary" onClick={saveAgent} disabled={busy}>
-              {busy ? "保存中…" : "保存"}
-            </button>
+            <button className="btn btn--ghost" onClick={() => setEditorOpen(false)}><X size={14} aria-hidden /> 取消</button>
+            <button className="btn btn--primary" onClick={saveAgent} disabled={busy}>{busy ? "保存中…" : "保存"}</button>
           </div>
         </div>
       </Dialog>
-
-      {/* 模型配置的入口提示：模型管理已迁入设置 */}
-      {models.length === 0 && (
-        <div className="alert alert--info" style={{ marginTop: 16 }}>
-          <KeyRound size={14} aria-hidden /> 还没有配置模型。请到「设置 → 模型配置」添加 OpenAI 兼容端点后，助手才能进行分析。
-        </div>
-      )}
     </div>
   )
 }

@@ -41,8 +41,18 @@ const EMPTY_MODEL: ModelForm = {
   is_default: false,
 }
 
+type SettingsTab = "models" | "tokens" | "mcp"
+
+const TABS: { key: SettingsTab; label: string; icon: typeof Cpu }[] = [
+  { key: "models", label: "模型配置", icon: Cpu },
+  { key: "tokens", label: "访问凭证", icon: KeyRound },
+  { key: "mcp", label: "外部 MCP", icon: Plug },
+]
+
 export function Settings() {
   const toast = useToast()
+  // 用户反馈 (m05823)：三块内容垂直堆叠太长 → 改水平 Tabs，一次只显示一块。
+  const [tab, setTab] = useState<SettingsTab>("models")
 
   // —— 对外 MCP 访问凭证（原「Agent Token」，语义：别人连本系统 /mcp 时用的 key）——
   const [tokens, setTokens] = useState<AgentToken[] | null>(null)
@@ -295,7 +305,23 @@ export function Settings() {
         </div>
       </div>
 
+      {/* 水平 Tabs：一次只渲染一块，避免页面被拉得很长 */}
+      <div className="tabs" role="tablist">
+        {TABS.map(({ key, label, icon: Icon }) => (
+          <button
+            key={key}
+            role="tab"
+            aria-selected={tab === key}
+            className={`tabs__tab${tab === key ? " tabs__tab--active" : ""}`}
+            onClick={() => setTab(key)}
+          >
+            <Icon size={15} aria-hidden /> {label}
+          </button>
+        ))}
+      </div>
+
       {/* —— 1. 模型配置 —— */}
+      {tab === "models" && (
       <section className="card">
         <div className="card__head">
           <div>
@@ -356,8 +382,10 @@ export function Settings() {
           </table>
         )}
       </section>
+      )}
 
       {/* —— 2. 对外 MCP 服务与访问凭证（别人连本系统 /mcp 用）—— */}
+      {tab === "tokens" && (
       <section className="card">
         <div className="card__head">
           <div>
@@ -425,7 +453,10 @@ export function Settings() {
         )}
       </section>
 
+      )}
+
       {/* —— 3. 挂载外部 MCP 服务（本系统作为客户端）—— */}
+      {tab === "mcp" && (
       <section className="card">
         <div className="card__head">
           <div>
@@ -493,6 +524,8 @@ export function Settings() {
           </table>
         )}
       </section>
+
+      )}
 
       {/* —— 弹窗：模型配置 —— */}
       <Dialog open={modelDialogOpen} title={editingModel ? "编辑模型配置" : "新建模型配置"} onClose={() => setModelDialogOpen(false)}>

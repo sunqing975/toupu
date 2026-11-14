@@ -75,4 +75,10 @@ export const agentsApi = {
     }),
   remove: (id: string) =>
     api<void>(`/api/v1/agent/definitions/${id}`, { method: "DELETE" }),
+  // 技能管理：停用后对所有 Agent 都不再注入该工具。
+  toggleSkill: (key: string, enabled: boolean) =>
+    api<AgentSkill>(`/api/v1/agent/definitions/skills/${key}`, {
+      method: "PATCH",
+      body: JSON.stringify({ enabled }),
+    }),
 }
