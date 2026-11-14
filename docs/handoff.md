@@ -7,6 +7,14 @@
 
 **M0~M6 前后端整段完成并提交**；**界面审查（`impeccable`）已完成**；**M7 Agent 框架 Phase 1-4 已完成并提交**；**按 WeKnora 对齐的 Agent 架构重做（后端 Phase A 5304768 + 前端 Phase B 7cb3ed3）已完成并提交**；**用户二次反馈 Phase C（5291491：历史会话持久化 + 正经对话框 + 对话框内换模型 + 设置水平 Tabs + 技能管理页）已完成并提交**：后端 **154 passed**、ruff/mypy 干净（70 files）；前端 `tsc`/`vite build` 0（2144 modules）+ 真实 HTTP E2E 18 断言全绿。**前端设计系统级精修（`redesign-existing-projects`）已完成**（本次提交）：自托管 Geist 变量字体（此前 IBM Plex Sans 从未加载）+ 令牌重写 + 精修层 + 总览 hero 主卡 + meta/favicon；`tsc`/`vite build` 0（2146 modules）+ headless Chrome DOM 实测通过，详见 §6.17。Phase C 落地 0013 迁移（agent_conversations/agent_messages 两表，agent_id/model_id 故意用 TEXT 不加 FK，删 Agent/模型后历史仍可查）、`/api/v1/agent/conversations` CRUD、chat 每轮问答自动落库 + 最近 20 条历史注入、`ChatIn.model_id` 对话框临时覆盖（优先级 > Agent 绑定 > 默认 > 最新）、`PATCH /definitions/skills/{key}` 全局技能总开关（停用后对所有 Agent 不注入工具）；前端 `/agent` 重写为左历史会话 + 右正经对话框（顶部模型下拉）、`/settings` 三块改水平 Tabs、新增 `/skills` 技能管理页（按 4 分类卡片 + 启停）、菜单加「技能」。M7 早期含系统 skill 文档、对外 MCP 服务（只读资源 + 提案工具，X-Agent-Token 鉴权）、模型配置 CRUD、OpenAI 兼容分析会话（`/agent/chat`）、挂载外部 MCP（通用客户端）。当前 `git status` 干净。
 
+## 1.1 最新修正：真实技能与会话归档（2026-11-14）
+
+- 历史会话不再提供 DELETE，0014 增加 archived_at；POST archive/restore 幂等，归档消息保留，前端直接操作无确认框，支持查看归档与恢复。
+- 技能纠偏：原16项其实是 function tools。新增独立 SKILL.md 指令包目录、导入/编辑/启停界面，内置 toupu-assistant 与 portfolio-review；初始目录+load_skill按需加载正文。现阶段只支持单文件，不执行上传脚本、不支持附件安装。旧工具权限配置保留兼容。
+- 真实模型故障已复现：普通请求200，16工具请求502；原因为属性内 required 布尔值非法。修正 JSON Schema 后同一真实端点请求200。
+- **本次回归事故**：旧 tests/test_agent_models.py 会 DELETE FROM agent_models；运行全套时删除了用户真实配置（原 GPT6.1-sol / 724ai.org / gpt-6.1-sol）。原密钥未输出且无法从现有审计恢复，需用户重新配置。破坏性测试已去除，conftest 现强制独立 toupu_test 数据库，禁止与开发库同名。不得把测试模型误称为真实联调成功。
+- 规则详见 agent-skill-packages.md。本次不改任何账务语义。
+
 ## 2. 项目定位（摘要，详见 agent.md / README）
 
 投谱 Toupu：个人投资资产管理系统的第一版，中国市场，支持场外公募基金、场内 ETF、A 股、券商/基金平台账户。

@@ -19,6 +19,7 @@ export interface Conversation {
   model_id: string | null
   created_at: string
   updated_at: string
+  archived_at: string | null
   message_count: number
 }
 
@@ -27,7 +28,7 @@ export interface ConversationDetail extends Conversation {
 }
 
 export const conversationsApi = {
-  list: () => api<Conversation[]>("/api/v1/agent/conversations"),
+  list: (archived = false) => api<Conversation[]>(`/api/v1/agent/conversations?archived=${archived}`),
   get: (id: string) => api<ConversationDetail>(`/api/v1/agent/conversations/${id}`),
   create: () =>
     api<Conversation>("/api/v1/agent/conversations", { method: "POST" }),
@@ -36,6 +37,8 @@ export const conversationsApi = {
       method: "PATCH",
       body: JSON.stringify({ title }),
     }),
-  remove: (id: string) =>
-    api<void>(`/api/v1/agent/conversations/${id}`, { method: "DELETE" }),
+  archive: (id: string) =>
+    api<Conversation>(`/api/v1/agent/conversations/${id}/archive`, { method: "POST" }),
+  restore: (id: string) =>
+    api<Conversation>(`/api/v1/agent/conversations/${id}/restore`, { method: "POST" }),
 }

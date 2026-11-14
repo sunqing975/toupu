@@ -8,6 +8,8 @@ import {
   Send,
   Settings2,
   Trash2,
+  Archive,
+  ArchiveRestore,
   X,
 } from "lucide-react"
 import {
@@ -90,6 +92,7 @@ export function Agent() {
 
   // 历史会话
   const [conversations, setConversations] = useState<Conversation[] | null>(null)
+  const [showArchived, setShowArchived] = useState(false)
   const [activeConvId, setActiveConvId] = useState<string | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [typing, setTyping] = useState(false)
@@ -118,15 +121,18 @@ export function Agent() {
 
   const loadConversations = () => {
     conversationsApi
-      .list()
+      .list(showArchived)
       .then(setConversations)
       .catch(() => setConversations([]))
   }
 
   useEffect(() => {
     loadAgents()
-    loadConversations()
   }, [])
+
+  useEffect(() => {
+    loadConversations()
+  }, [showArchived])
 
   const openConversation = async (id: string) => {
     setActiveConvId(id)
@@ -153,13 +159,13 @@ export function Agent() {
     setQuestion("")
   }
 
-  const removeConversation = async (c: Conversation) => {
-    if (!confirm(`删除会话「${c.title || "未命名"}」？此操作不可恢复。`)) return
+  const archiveConversation = async (c: Conversation) => {
     try {
-      await conversationsApi.remove(c.id)
+      if (c.archived_at) await conversationsApi.restore(c.id)
+      else await conversationsApi.archive(c.id)
       if (activeConvId === c.id) newConversation()
       loadConversations()
-      toast("success", "会话已删除")
+      toast("success", c.archived_at ? "会话已恢复" : "会话已归档，历史消息保留")
     } catch (e) {
       toast("error", e instanceof Error ? e.message : String(e))
     }
@@ -318,7 +324,7 @@ export function Agent() {
         <div>
           <h2 className="page__title">助手</h2>
           <p className="page__sub">
-            每个助手绑定模型、系统提示词与一组技能。选择助手后在对话框里提问，历史会话自动保存，可回看续聊。
+            助手绑定模型与可用工具，专业工作流程在技能页通过 SKILL.md 管理。历史会话自动保存，可回看、续聊或归档。
           </p>
         </div>
         <button className="btn btn--primary" onClick={openCreate}>
@@ -384,7 +390,9 @@ export function Agent() {
       <div className="chat-workspace">
         <aside className="chat-sidebar">
           <div className="chat-sidebar__head">
-            <span><MessageSquare size={14} aria-hidden /> 历史会话</span>
+            <button className="btn btn--ghost" onClick={() => setShowArchived(!showArchived)}>
+              <MessageSquare size={14} aria-hidden /> {showArchived ? "已归档 · 返回历史" : "历史会话 · 查看归档"}
+            </button>
             <button className="btn btn--ghost btn--icon" onClick={newConversation} title="新建会话" aria-label="新建会话">
               <Plus size={14} aria-hidden />
             </button>
@@ -410,10 +418,11 @@ export function Agent() {
                   </span>
                   <button
                     className="btn btn--ghost btn--icon chat-session__del"
-                    aria-label="删除会话"
-                    onClick={(e) => { e.stopPropagation(); removeConversation(c) }}
+                    aria-label={c.archived_at ? "恢复会话" : "归档会话"}
+                    title={c.archived_at ? "恢复会话" : "归档，保留历史消息"}
+                    onClick={(e) => { e.stopPropagation(); archiveConversation(c) }}
                   >
-                    <Trash2 size={12} aria-hidden />
+                    {c.archived_at ? <ArchiveRestore size={12} aria-hidden /> : <Archive size={12} aria-hidden />}
                   </button>
                 </div>
               ))}
@@ -429,7 +438,7 @@ export function Agent() {
               <div>
                 <strong>{selected ? selected.name : "请选择助手"}</strong>
                 <span className="muted">
-                  {selected ? `${selected.enabled_skill_keys.length} 项技能 · 写入仅生成草稿` : "—"}
+                  {selected ? `${selected.enabled_skill_keys.length} 项工具 · 写入仅生成草稿` : "—"}
                 </span>
               </div>
             </div>
@@ -485,7 +494,7 @@ export function Agent() {
                           <div className="evidence__body">
                             <span>助手：{m.agentName || "—"}</span>
                             <span>模型：{m.modelName || "默认模型"}</span>
-                            <span>数据范围：由该助手启用的只读/分析技能按需拉取</span>
+                            <span>数据范围：由该助手启用的只读/分析工具按需拉取</span>
                             <span>说明：会话未改动账本；可执行操作需你在网页端确认。</span>
                           </div>
                         </details>
@@ -589,7 +598,7 @@ export function Agent() {
           </div>
 
           <div className="field">
-            <span className="field__label">技能（{form.enabled_skill_keys.length} 项已启用）</span>
+            <span className="field__label">可用工具（{form.enabled_skill_keys.length} 项已启用）</span>
             {skills === null ? (
               <Skeleton rows={3} />
             ) : (

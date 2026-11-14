@@ -237,7 +237,10 @@ class _Skill:
                 "description": self.description,
                 "parameters": {
                     "type": "object",
-                    "properties": self.params,
+                    "properties": {
+                        key: {k: v for k, v in spec.items() if k != "required"}
+                        for key, spec in self.params.items()
+                    },
                     "required": [k for k, v in self.params.items() if v.get("required")],
                 },
             },

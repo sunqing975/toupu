@@ -133,12 +133,8 @@ def test_model_404():
 
 
 def test_chat_no_model_configured_returns_400(monkeypatch):
-    # 清空模型表，确保“无可用模型”
-    with SessionLocal() as db:
-        from sqlalchemy import text
-
-        db.execute(text("DELETE FROM agent_models"))
-        db.commit()
+    # 不得清空与开发环境共享的用户模型配置。
+    monkeypatch.setattr("app.agent.chat_router._resolve_model", lambda *args: None)
 
     resp = client.post(
         "/api/v1/agent/chat",

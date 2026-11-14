@@ -55,13 +55,22 @@ def test_conversation_crud():
     assert renamed.status_code == 200, renamed.text
     assert renamed.json()["title"] == "重命名会话"
 
-    assert client.delete(f"/api/v1/agent/conversations/{cid}").status_code == 204
-    assert client.get(f"/api/v1/agent/conversations/{cid}").status_code == 404
+    assert client.delete(f"/api/v1/agent/conversations/{cid}").status_code == 405
+    archived = client.post(f"/api/v1/agent/conversations/{cid}/archive")
+    assert archived.status_code == 200
+    assert archived.json()["archived_at"] is not None
+    assert client.post(f"/api/v1/agent/conversations/{cid}/archive").status_code == 200
+    assert all(c["id"] != cid for c in client.get("/api/v1/agent/conversations").json())
+    assert any(
+        c["id"] == cid for c in client.get("/api/v1/agent/conversations?archived=true").json()
+    )
+    assert client.get(f"/api/v1/agent/conversations/{cid}").status_code == 200
+    assert client.post(f"/api/v1/agent/conversations/{cid}/restore").status_code == 200
 
 
 def test_conversation_not_found():
     assert client.get(f"/api/v1/agent/conversations/{uuid.uuid4()}").status_code == 404
-    assert client.delete(f"/api/v1/agent/conversations/{uuid.uuid4()}").status_code == 404
+    assert client.post(f"/api/v1/agent/conversations/{uuid.uuid4()}/archive").status_code == 404
 
 
 def test_chat_persists_messages_and_history():
@@ -98,7 +107,10 @@ def test_chat_persists_messages_and_history():
     row = next(c for c in listing if c["id"] == cid)
     assert row["message_count"] == 4
 
-    client.delete(f"/api/v1/agent/conversations/{cid}")
+    client.post(f"/api/v1/agent/conversations/{cid}/archive")
+    preserved = client.get(f"/api/v1/agent/conversations/{cid}").json()
+    assert preserved["message_count"] == 4
+    assert preserved["messages"] == detail["messages"]
 
 
 def test_chat_model_override_takes_priority():

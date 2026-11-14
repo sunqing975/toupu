@@ -15,6 +15,7 @@ from app.agent.mcp_router import router as agent_mcp_router
 from app.agent.mcp_server import mcp_server, mount_mcp
 from app.agent.models_router import router as agent_models_router
 from app.agent.router import router as agent_router
+from app.agent.skill_packages import router as skill_packages_router
 from app.core import errors
 from app.core.config import get_settings
 from app.funds.router import router as funds_router
@@ -75,6 +76,7 @@ def create_app() -> FastAPI:
     app.include_router(agent_router)
     app.include_router(agent_models_router)
     app.include_router(agent_definitions_router)
+    app.include_router(skill_packages_router)
     app.include_router(agent_conversations_router)
     app.include_router(agent_chat_router)
     app.include_router(agent_mcp_router)

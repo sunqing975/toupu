@@ -176,6 +176,7 @@ def test_chat_uses_tool_loop_with_mock_model():
 
 
 def test_chat_requires_model():
-    # 不创建模型，应 400
-    resp = client.post("/api/v1/agent/chat", json={"question": "你好"})
+    # 隔离共享开发库中的真实模型，不触发网络也不删除用户配置。
+    with patch("app.agent.chat_router._resolve_model", return_value=None):
+        resp = client.post("/api/v1/agent/chat", json={"question": "你好"})
     assert resp.status_code == 400

@@ -74,6 +74,7 @@ class AgentConversation(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     title: Mapped[str] = mapped_column(Text, default="")
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # 故意不加 FK：删除 Agent/模型后历史会话仍可查。存字符串 id，避免 UUID 类型耦合。
     agent_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     model_id: Mapped[str | None] = mapped_column(Text, nullable=True)

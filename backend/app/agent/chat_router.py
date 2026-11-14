@@ -4,6 +4,7 @@
 # 用户反馈 (m05823)：历史会话持久化 + 对话框可直接换模型 + 技能总开关生效。
 from __future__ import annotations
 
+import json
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -11,7 +12,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.agent import llm
+from app.agent import llm, skill_packages
 from app.agent import skills as skills_mod
 from app.agent.conversations import (
     append_message,
@@ -95,6 +96,11 @@ def _tool_schemas(db: Session, agent: AgentDefinition) -> list[dict]:
 
 def _tool_executor(db: Session):
     def _exec(name: str, arguments: str) -> str:
+        if name == "load_skill":
+            try:
+                return skill_packages.load_skill(db, json.loads(arguments).get("name", ""))
+            except (ValueError, AttributeError):
+                return "技能参数无效"
         return skills_mod.execute_skill(db, name, arguments)
 
     return _exec
@@ -113,7 +119,8 @@ def agent_chat(payload: ChatIn, db: Session = Depends(get_db)) -> ChatOut:
     system_prompt = agent.system_prompt or (
         "你是投谱 Toupu 的投资分析助手。你只能使用提供的工具回答，不要编造工具之外的信息。"
     )
-    tool_schemas = _tool_schemas(db, agent)
+    system_prompt += skill_packages.catalog_prompt(db)
+    tool_schemas = _tool_schemas(db, agent) + [skill_packages.LOAD_SCHEMA]
     external_hint = (
         "你可以使用 read_external_knowledge 检索已挂载的外部知识库（如 weknora）。"
         if tool_schemas

@@ -12,6 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.agent.models import AgentConversation, AgentMessage
+from app.audit import record_audit
 from app.db.session import get_db
 
 router = APIRouter(prefix="/api/v1/agent/conversations", tags=["agent-conversations"])
@@ -110,6 +111,7 @@ class ConversationOut(BaseModel):
     model_id: str | None = None
     created_at: datetime
     updated_at: datetime
+    archived_at: datetime | None = None
     message_count: int = 0
 
 
@@ -117,7 +119,7 @@ class ConversationDetailOut(ConversationOut):
     messages: list[MessageOut] = []
 
 
-def _list_query(db: Session):
+def _list_query(db: Session, archived: bool = False):
     counts = dict(
         db.execute(
             select(AgentMessage.conversation_id, func.count()).group_by(
@@ -126,7 +128,15 @@ def _list_query(db: Session):
         ).all()
     )
     convs = list(
-        db.execute(select(AgentConversation).order_by(AgentConversation.updated_at.desc()))
+        db.execute(
+            select(AgentConversation)
+            .where(
+                AgentConversation.archived_at.is_not(None)
+                if archived
+                else AgentConversation.archived_at.is_(None)
+            )
+            .order_by(AgentConversation.updated_at.desc())
+        )
         .scalars()
         .all()
     )
@@ -138,6 +148,7 @@ def _list_query(db: Session):
             model_id=c.model_id,
             created_at=c.created_at,
             updated_at=c.updated_at,
+            archived_at=c.archived_at,
             message_count=counts.get(c.id, 0),
         )
         for c in convs
@@ -145,8 +156,10 @@ def _list_query(db: Session):
 
 
 @router.get("", response_model=list[ConversationOut])
-def list_conversations(db: Session = Depends(get_db)) -> list[ConversationOut]:
-    return _list_query(db)
+def list_conversations(
+    archived: bool = False, db: Session = Depends(get_db)
+) -> list[ConversationOut]:
+    return _list_query(db, archived)
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=ConversationOut)
@@ -180,6 +193,7 @@ def get_conversation(
         model_id=conv.model_id,
         created_at=conv.created_at,
         updated_at=conv.updated_at,
+        archived_at=conv.archived_at,
         message_count=len(msgs),
         messages=[MessageOut.model_validate(m, from_attributes=True) for m in msgs],
     )
@@ -199,10 +213,31 @@ def rename_conversation(
     return ConversationOut.model_validate(conv, from_attributes=True)
 
 
-@router.delete("/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_conversation(conversation_id: uuid.UUID, db: Session = Depends(get_db)) -> None:
+def _archive(db: Session, conversation_id: uuid.UUID, archived: bool) -> ConversationOut:
     conv = db.get(AgentConversation, conversation_id)
     if conv is None:
         raise HTTPException(status_code=404, detail="会话不存在")
-    db.delete(conv)
-    db.commit()
+    if (conv.archived_at is not None) != archived:
+        conv.archived_at = datetime.now(UTC) if archived else None
+        record_audit(
+            db,
+            "conversation.archive" if archived else "conversation.restore",
+            "agent_conversation",
+            str(conv.id),
+        )
+        db.commit()
+    return ConversationOut.model_validate(conv, from_attributes=True)
+
+
+@router.post("/{conversation_id}/archive", response_model=ConversationOut)
+def archive_conversation(
+    conversation_id: uuid.UUID, db: Session = Depends(get_db)
+) -> ConversationOut:
+    return _archive(db, conversation_id, True)
+
+
+@router.post("/{conversation_id}/restore", response_model=ConversationOut)
+def restore_conversation(
+    conversation_id: uuid.UUID, db: Session = Depends(get_db)
+) -> ConversationOut:
+    return _archive(db, conversation_id, False)

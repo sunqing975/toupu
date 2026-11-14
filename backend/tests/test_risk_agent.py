@@ -264,7 +264,7 @@ def test_scan_creates_events_and_is_idempotent():
 
     r1 = client.post("/api/v1/risk/scan", json={"as_of": as_of})
     assert r1.status_code == 200, r1.text
-    created_1 = len(r1.json()["created"])
+    created_1 = len([e for e in r1.json()["created"] if e["rule_id"] == rule["id"]])
     assert created_1 >= 1
 
     r2 = client.post("/api/v1/risk/scan", json={"as_of": as_of})
