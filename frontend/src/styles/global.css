@@ -1522,3 +1522,430 @@ h3.card__title {
     grid-template-columns: 1fr;
   }
 }
+
+/* ==========================================================================
+   精修层（Design Polish Layer）
+   追加在文件末尾，按层叠顺序覆盖上面的基础规则；不改动任何业务类名，
+   只在令牌之上补充：排版层级、表面深度、物理交互反馈、旗舰 hero、动效。
+   ========================================================================== */
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-size: 14px;
+  line-height: 1.55;
+  letter-spacing: 0.005em;
+  text-rendering: optimizeLegibility;
+}
+
+/* 字阶：标题更重、负字距，形成 display 级排版 */
+h1,
+h2,
+h3 {
+  letter-spacing: -0.02em;
+  font-weight: 650;
+}
+
+.page {
+  max-width: 1320px;
+}
+
+.page__eyebrow {
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.14em;
+  color: var(--color-primary);
+  margin-bottom: 6px;
+}
+
+.page__title {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+}
+
+.page__sub {
+  font-size: 14px;
+  color: var(--color-muted-foreground);
+  margin-top: 6px;
+}
+
+/* ---------- 侧栏：低饱和 tint + 左侧细指示条，取代实心蓝药丸 ---------- */
+
+.sidebar {
+  background: var(--color-surface);
+  border-right: 1px solid var(--color-border);
+}
+
+.sidebar__brand {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.sidebar__brand-mark {
+  border-radius: 9px;
+  box-shadow: 0 4px 12px -4px var(--color-primary-ring);
+  font-weight: 700;
+}
+
+.sidebar__link {
+  position: relative;
+  border-radius: var(--radius-control);
+  transition:
+    background var(--dur) var(--ease-out),
+    color var(--dur) var(--ease-out),
+    transform var(--dur) var(--ease-out);
+}
+
+.sidebar__link:hover {
+  background: var(--color-primary-softer);
+  color: var(--color-foreground);
+}
+
+.sidebar__link--active,
+.sidebar__link--active:hover {
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+  font-weight: 650;
+}
+
+.sidebar__link--active::before {
+  content: "";
+  position: absolute;
+  left: -2px;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 3px;
+  background: var(--color-primary);
+}
+
+.sidebar__link--active svg {
+  stroke-width: 2.25;
+}
+
+/* ---------- 顶栏：半透明 + 背景模糊，拉开层次 ---------- */
+
+.topbar {
+  background: color-mix(in srgb, var(--color-background) 82%, transparent);
+  backdrop-filter: blur(14px) saturate(1.4);
+  -webkit-backdrop-filter: blur(14px) saturate(1.4);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.topbar__title {
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+/* ---------- 卡片：着色阴影 + 细边框，hover 轻微上浮 ---------- */
+
+.card {
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  transition:
+    box-shadow var(--dur) var(--ease-out),
+    border-color var(--dur) var(--ease-out),
+    transform var(--dur) var(--ease-out);
+}
+
+.card:hover {
+  box-shadow: var(--shadow-card-hover);
+}
+
+.card__title {
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-muted-foreground);
+}
+
+.card__value {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+/* ---------- 按钮：hover 位移 + 按压 scale ---------- */
+
+.btn {
+  border-radius: var(--radius-control);
+  font-weight: 600;
+  transition:
+    background var(--dur) var(--ease-out),
+    border-color var(--dur) var(--ease-out),
+    color var(--dur) var(--ease-out),
+    box-shadow var(--dur) var(--ease-out),
+    transform var(--dur-fast) var(--ease-spring);
+}
+
+.btn--primary {
+  box-shadow: 0 2px 8px -2px var(--color-primary-ring);
+}
+
+.btn--primary:hover:not(:disabled) {
+  filter: none;
+  background: var(--color-primary-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px -4px var(--color-primary-ring);
+}
+
+.btn--secondary:hover:not(:disabled),
+.btn--ghost:hover:not(:disabled) {
+  border-color: var(--color-border-strong);
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(0.97);
+  box-shadow: none;
+}
+
+/* ---------- 输入：focus 环 ---------- */
+
+.input:focus,
+.select:focus,
+.textarea:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-ring);
+}
+
+/* ---------- 标签 / 徽标 ---------- */
+
+.tag,
+.badge {
+  border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+  border-radius: var(--radius-pill);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+/* ---------- 总览 hero：打破四等分对称 ---------- */
+
+.overview {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+  gap: var(--space-4);
+  align-items: stretch;
+}
+
+/* 深墨底 + 单点品牌光晕：不用紫蓝 AI 渐变，靠材质与光而非渐变取质感 */
+.hero-card {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-6);
+  border-radius: var(--radius-lg);
+  color: #f7f8fc;
+  background: #141826;
+  box-shadow: var(--shadow-hero);
+}
+
+.hero-card__glow {
+  position: absolute;
+  right: -100px;
+  top: -160px;
+  width: 420px;
+  height: 420px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(94, 124, 255, 0.35) 0%, rgba(94, 124, 255, 0.06) 45%, transparent 70%);
+  pointer-events: none;
+}
+
+/* 一道极细的顶部高光，模拟卡片边缘受光 */
+.hero-card::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.22), transparent);
+  pointer-events: none;
+}
+
+.hero-card__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.hero-card__eyebrow {
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.14em;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.hero-card__badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  color: #b9c6ff;
+  background: rgba(123, 147, 255, 0.12);
+  border: 1px solid rgba(123, 147, 255, 0.3);
+}
+
+.hero-card__value {
+  position: relative;
+  margin-top: var(--space-5);
+  font-size: clamp(34px, 4vw, 48px);
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 1.05;
+}
+
+.hero-card__composition {
+  position: relative;
+  margin-top: auto;
+  padding-top: var(--space-6);
+}
+
+.hero-card__bar {
+  display: flex;
+  height: 7px;
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.hero-card__bar-seg--cash {
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.hero-card__bar-seg--market {
+  background: #7fe3b6;
+}
+
+.hero-card__legend {
+  display: flex;
+  gap: var(--space-5);
+  margin-top: var(--space-3);
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.hero-card__legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.hero-card__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.hero-card__dot--cash {
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.hero-card__dot--market {
+  background: #7fe3b6;
+}
+
+.hero-card__foot {
+  position: relative;
+  margin-top: var(--space-4);
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.62);
+}
+
+/* 右侧三个次级指标：紧凑堆叠，与主卡形成主次 */
+.overview__side {
+  display: grid;
+  grid-template-rows: repeat(3, 1fr);
+  gap: var(--space-4);
+}
+
+.metric-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-card);
+  box-shadow: var(--shadow-card);
+  transition:
+    transform var(--dur) var(--ease-out),
+    box-shadow var(--dur) var(--ease-out),
+    border-color var(--dur) var(--ease-out);
+}
+
+.metric-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--color-border-strong);
+  box-shadow: var(--shadow-card-hover);
+}
+
+.metric-card__label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-muted-foreground);
+}
+
+.metric-card__value {
+  margin-top: 6px;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+}
+
+.metric-card__hint {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--color-muted-foreground);
+}
+
+@media (max-width: 1024px) {
+  .overview {
+    grid-template-columns: 1fr;
+  }
+
+  .overview__side {
+    grid-template-rows: none;
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 720px) {
+  .overview__side {
+    grid-template-columns: 1fr;
+  }
+
+  .hero-card {
+    padding: var(--space-5);
+  }
+}
+
+/* ---------- 无障碍：尊重系统的减少动效偏好 ---------- */
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

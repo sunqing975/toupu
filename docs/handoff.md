@@ -1,11 +1,11 @@
 # 交接文档（HANDOFF）
 
-> 最后更新：2026-11-14。给接手的开发者/Agent 看的工作状态说明。
+> 最后更新：2026-11-14（含 §6.17 前端设计系统级精修）。给接手的开发者/Agent 看的工作状态说明。
 > 开始任何代码修改前，先读 [`agent.md`](agent.md)（最高优先级约束），再读本文。
 
 ## 1. 一句话状态
 
-**M0~M6 前后端整段完成并提交**；**界面审查（`impeccable`）已完成**；**M7 Agent 框架 Phase 1-4 已完成并提交**；**按 WeKnora 对齐的 Agent 架构重做（后端 Phase A 5304768 + 前端 Phase B 7cb3ed3）已完成并提交**；**用户二次反馈 Phase C（历史会话持久化 + 正经对话框 + 对话框内换模型 + 设置水平 Tabs + 技能管理页）已完成并提交**：后端 **154 passed**、ruff/mypy 干净（70 files）；前端 `tsc`/`vite build` 0（2144 modules）+ 真实 HTTP E2E 18 断言全绿。Phase C 落地 0013 迁移（agent_conversations/agent_messages 两表，agent_id/model_id 故意用 TEXT 不加 FK，删 Agent/模型后历史仍可查）、`/api/v1/agent/conversations` CRUD、chat 每轮问答自动落库 + 最近 20 条历史注入、`ChatIn.model_id` 对话框临时覆盖（优先级 > Agent 绑定 > 默认 > 最新）、`PATCH /definitions/skills/{key}` 全局技能总开关（停用后对所有 Agent 不注入工具）；前端 `/agent` 重写为左历史会话 + 右正经对话框（顶部模型下拉）、`/settings` 三块改水平 Tabs、新增 `/skills` 技能管理页（按 4 分类卡片 + 启停）、菜单加「技能」。M7 早期含系统 skill 文档、对外 MCP 服务（只读资源 + 提案工具，X-Agent-Token 鉴权）、模型配置 CRUD、OpenAI 兼容分析会话（`/agent/chat`）、挂载外部 MCP（通用客户端）。当前 `git status` 干净。
+**M0~M6 前后端整段完成并提交**；**界面审查（`impeccable`）已完成**；**M7 Agent 框架 Phase 1-4 已完成并提交**；**按 WeKnora 对齐的 Agent 架构重做（后端 Phase A 5304768 + 前端 Phase B 7cb3ed3）已完成并提交**；**用户二次反馈 Phase C（5291491：历史会话持久化 + 正经对话框 + 对话框内换模型 + 设置水平 Tabs + 技能管理页）已完成并提交**：后端 **154 passed**、ruff/mypy 干净（70 files）；前端 `tsc`/`vite build` 0（2144 modules）+ 真实 HTTP E2E 18 断言全绿。**前端设计系统级精修（`redesign-existing-projects`）已完成**（本次提交）：自托管 Geist 变量字体（此前 IBM Plex Sans 从未加载）+ 令牌重写 + 精修层 + 总览 hero 主卡 + meta/favicon；`tsc`/`vite build` 0（2146 modules）+ headless Chrome DOM 实测通过，详见 §6.17。Phase C 落地 0013 迁移（agent_conversations/agent_messages 两表，agent_id/model_id 故意用 TEXT 不加 FK，删 Agent/模型后历史仍可查）、`/api/v1/agent/conversations` CRUD、chat 每轮问答自动落库 + 最近 20 条历史注入、`ChatIn.model_id` 对话框临时覆盖（优先级 > Agent 绑定 > 默认 > 最新）、`PATCH /definitions/skills/{key}` 全局技能总开关（停用后对所有 Agent 不注入工具）；前端 `/agent` 重写为左历史会话 + 右正经对话框（顶部模型下拉）、`/settings` 三块改水平 Tabs、新增 `/skills` 技能管理页（按 4 分类卡片 + 启停）、菜单加「技能」。M7 早期含系统 skill 文档、对外 MCP 服务（只读资源 + 提案工具，X-Agent-Token 鉴权）、模型配置 CRUD、OpenAI 兼容分析会话（`/agent/chat`）、挂载外部 MCP（通用客户端）。当前 `git status` 干净。
 
 ## 2. 项目定位（摘要，详见 agent.md / README）
 
@@ -82,7 +82,8 @@ uv run mypy app
 | `5e428ac` | Agent 分析页对话式重构（参考 WeKnora 对话范式：消息气泡 + 输入条 + 分析依据面板） |
 | `5304768` | **WeKnora 对齐 Phase A（后端）**：完整技能运行时（16 技能 / `chat_with_tools` 工具循环）+ Agent 一等实体 CRUD + 内置「投谱助手」幂等种子 + 0012 迁移 + 148 测试 |
 | `7cb3ed3` | **WeKnora 对齐 Phase B（前端）**：`/agent` 重写为 Agent 卡片列表 + 编辑器（技能按分类勾选）/ 分析会话去 as_of；`/settings` 收纳模型配置 / 对外 MCP 访问凭证（原 Agent Token 改名）/ 挂载外部 MCP、删知识库空态；助手置顶菜单；tsc/vite build 0 + 23 断言 E2E 全绿 |
-| 本次提交 | **用户二次反馈 Phase C**：0013 迁移（会话/消息持久化）+ `/agent/conversations` CRUD + chat 自动落库/历史注入/对话框内 model_id 覆盖 + `PATCH /definitions/skills/{key}` 全局技能总开关；前端 `/agent` 左历史+右正经对话框（顶部模型下拉）、`/settings` 水平 Tabs、新增 `/skills` 技能管理页；154 passed / ruff / mypy / tsc / build 全绿 + 18 断言 E2E |
+| `5291491` | **用户二次反馈 Phase C**：0013 迁移（会话/消息持久化）+ `/agent/conversations` CRUD + chat 自动落库/历史注入/对话框内 model_id 覆盖 + `PATCH /definitions/skills/{key}` 全局技能总开关；前端 `/agent` 左历史+右正经对话框（顶部模型下拉）、`/settings` 水平 Tabs、新增 `/skills` 技能管理页；154 passed / ruff / mypy / tsc / build 全绿 + 18 断言 E2E |
+| 本次提交 | **前端设计系统级精修（`redesign-existing-projects` 技能）**：自托管 Geist/Geist Mono 变量字体（此前 IBM Plex Sans 从未加载）、重写 tokens.css（单一强调色/暖中性表面层级/着色阴影/动效令牌，保留全部旧变量名）、global.css 追加精修层（display 字阶/负字距、侧栏 tint+指示条、顶栏毛玻璃、卡片深度、按钮 hover 位移+按压 scale、focus 环、平滑滚动、reduced-motion）、总览页 hero 主卡（深墨底+品牌光晕+资产构成条，打破 4 等分白卡）、index.html 补齐 description/theme-color/favicon/color-scheme；tsc/vite build 0（2146 modules，字体打包）+ headless Chrome DOM 实测 |
 | `272bab8` | 前端 v0.1：设计令牌（亮/暗）、应用壳导航、总览/账户/品种页（真实 API）、占位页、Toast/Dialog/徽标/骨架屏 |
 | `480e547`、`12d73bc` | UI 文案去行话（「标的」→「投资品种」）；账户类型收紧为券商/基金平台（迁移 0002）；开发模式改本地进程 |
 | `41f3e22` | 产品三件套（product/user-flow/page-spec）+ frontend-design.md |
@@ -102,7 +103,7 @@ uv run mypy app
 - 行情与收益：`/api/v1/market`（行情/净值录入 + 估值覆盖状态）、`/api/v1/performance`（派生汇总 + XIRR/TWR/MDD 状态）、`/api/v1/snapshots`（幂等重建）；快照是可删除重建的派生结果。前端 `/market` 估值明细/录入/快照重建/收益指标卡。
 - 风险与 Agent：`/api/v1/risk`（规则 CRUD、确定性扫描、事件确认/忽略）、`/api/v1/agent`（Token 管理与只读网关、提案创建）、`/api/v1/plans`（计划/行动项、提案审批/拒绝）；Agent 只读、提案审批只生成 DRAFT 不入账。
 - 功能页（前端）：总览、助手、持仓、交易、基金、行情、导入、账本、风险、计划、账户、投资品种、设置（13 项导航；助手置顶，账本/设置均已实现，无占位）。
-- 前端：Swiss 极简，信任蓝 `#1E40AF`，红涨绿跌，tabular-nums；亮/暗主题跟随系统。
+- 前端：Swiss 极简（Geist 自托管变量字体），信任蓝 `#2748c8`，红涨绿跌，tabular-nums；亮/暗主题跟随系统（详见 §6.17 设计系统精修）。
 
 ## 5. M2（证券交易）后端 —— 已全绿，已提交（03071d8）
 
@@ -340,6 +341,28 @@ M  backend/app/transactions/router.py
   - `AgentModelPatch` 强类型化后未用 → 删掉该 type import（TS6133 教训）。
 - **验收**：`uv run pytest -q` **154 passed, 19 warnings**；`ruff check` / `ruff format --check` 85 files / `mypy app` Success 70 files；`npx tsc --noEmit` 0、`npx vite build` 0（2144 modules，`index-D-NO5b1S.js 438.51 kB` / gzip 124.40、`index-Be58xV5C.css 23.72 kB`）；`/tmp/m7_phaseC_e2e.py` 真实 HTTP **18 断言全绿**（会话 CRUD 8、技能管理 5、chat 安全路径 2、vite /agent /skills /settings 3）。完整 chat 落库由单测 mock llm 覆盖（E2E 不触发真实 LLM，避免 api.openai.com 无密钥）。
 
+## 6.17 前端设计系统级精修（`redesign-existing-projects`，本次提交）
+
+用户 m06213 反馈：「感觉前端设计缺少大厂那种设计感。没有用技能优化一下吗。」此前 §6.13 的 `impeccable` 只做了 bug 级修补（补 `.btn--ghost`、仪表盘真实数据、占位诚实化），并非系统性视觉重设计。本次加载 `redesign-existing-projects` 技能，按 **Scan → Diagnose → Fix** 与 Fix Priority（字体 → 配色 → 交互 → 布局 → 组件 → 状态 → 字阶）落地，**不重写组件、不换框架、不改动任何业务类名**。
+
+**诊断出的六条根因**：
+1. **字体根本没加载**：`tokens.css` 声明 `"IBM Plex Sans"`，但全仓库无 `@font-face` / Google Fonts link / `@fontsource` 依赖 → 实际一直 fallback 到 `system-ui`。`--font-mono` 被 global.css 引用却从未定义。这是最刺眼的模板指纹。
+2. **纯平面无层次**：卡片一律 `#fff` + 1px 灰边框，阴影是中性黑 `rgba(15,23,42,.12)`，无环境光/材质/深度。
+3. **总览页四张等分白卡**：旗舰页无主次（总资产与次要指标同权），典型「等分卡片」模板感。
+4. **侧栏激活态整块饱和蓝**：大厂做法是低饱和 tint + 左侧细指示条。
+5. **字阶扁平**：正文 14 / 标题 20 / 数值 20，只有 500/600 两档，无 display 级排版与负字距。
+6. **交互缺物理反馈**：hover 只换色，无位移/按压；`scroll-behavior`、`prefers-reduced-motion`、favicon/meta 全缺。
+
+**落地（7 文件）**：
+- `frontend/package.json` + `package-lock.json`：`npm install @fontsource-variable/geist @fontsource-variable/geist-mono`（均 5.3.0）。**自托管而非 CDN**（离线可靠、无 FOUT、无外部请求）；`@fontsource-variable/geist/wght.css` 与 `geist-mono/wght.css` 在 `main.tsx` 导入，Vite 把 11 个 woff2 子集打进 `dist/assets`。字族 = `"Geist Variable"` 负责西文/数字，中文回退 PingFang SC / Noto Sans SC；`"Geist Mono Variable"` 补齐 `--font-mono`。
+- `frontend/src/styles/tokens.css`（重写，**保留全部旧变量名**以兼容既有类名）：单一强调色 `--color-primary: #2748c8` + hover/soft/softer/ring 四级派生；暖中性表面层级（background `#faf9f7` / surface `#f3f2ef` / card `#fff` / sunken）；**带品牌色相的着色阴影** `--shadow-card/-hover/-pop/-hero`（弃用纯黑）；圆角分级（card 14 / lg 18 / control 9 / pill）；新增 `--space-7/8`、`--ease-out/--ease-spring`、`--dur-fast/--dur/--dur-slow`；深色模式全量对应覆盖（含 `color-scheme`）。
+- `frontend/src/styles/global.css`（末尾追加「精修层」，靠层叠覆盖基础规则）：`html{scroll-behavior:smooth}`；标题 650 字重 + `-0.02em` 负字距；`.page__title` 28px/700、`OVERVIEW` eyebrow；侧栏 `background: var(--color-surface)` + 激活态 `primary-soft` tint + `::before` 3px 指示条 + svg 加粗；顶栏半透明 + `backdrop-filter: blur(14px) saturate(1.4)`；卡片 `var(--shadow-card)` + hover 上浮阴影；按钮 hover `translateY(-1px)` + `:active scale(0.97)`；输入 focus 3px `primary-ring` 环；`.tag/.badge` 边框改 `currentColor 22%`（避免灰框破坏状态色）；`@media (prefers-reduced-motion: reduce)` 统一压平动效。
+- `frontend/src/pages/Dashboard.tsx`（重写视觉结构）：四等分 `.stat-grid` → `.overview` 非对称栅格（`1.55fr : 1fr`）。左侧 **hero 主卡**（深墨 `#141826` 底 + 单点品牌径向光晕 + 顶部 1px 高光，**刻意不用紫蓝 AI 渐变**）：eyebrow「净资产 · NET ASSET VALUE」、`clamp(34px,4vw,48px)` 大数值、现金/持仓占比条与图例、账本口径脚注；右侧 3 张 `.metric-card` 纵向堆叠（现金合计 / 持仓市值 / 累计盈亏），hover 上浮。`page__head` 补「总览」display 标题。业务数据获取与 `noAccounts` 空态完全不变。
+- `frontend/index.html`：补 `description`、`color-scheme`、双 `theme-color`（亮 `#2748c8` / 暗 `#0e1014`）、内联 SVG favicon（品牌蓝方块 + 「投」字笔画）、title 改「投谱 Toupu · 投资账本」。
+- **决策**：`.page__title` 用 `<h2>`（Dashboard 原 `<h1>` 会造成页内多 h1）；`--color-primary` 从 `#1e40af` 调为 `#2748c8`（更饱和、在 tint 上更清晰）；hero 从初版「蓝色渐变」改为「深墨底 + 光晕」，因为技能明确禁紫蓝 AI 渐变，深墨更符合 Linear/Vercel 系 fintech 质感。
+
+**验收**：`npx tsc --noEmit` 0；`npx vite build` 0（**2146 modules**，11 个 woff2 字体子集打包，`index-*.css 35.03 kB` / gzip 6.73、`index-*.js 440.17 kB` / gzip 124.85）；14 条前端路由全部 200；headless Chrome `--dump-dom` 实测 React 真实挂载 hero（渲染出真实净资产 `58,325,421.670058`、`NET ASSET VALUE`、`OVERVIEW`、全部 `hero-card__*` 节点、26 个侧栏链接），字体 woff2 经 vite 返回 `200 font/woff2`，构建 CSS 含 `Geist Variable`/`Geist Mono Variable`。注：本模型不支持读图，故改用 DOM 断言而非截图判读（截图 `/tmp/toupu-dashboard.png` 已生成可供人工查看）。后端未改动。
+
 ## 7. 还没做
 
 | 事项 | 说明 |
@@ -361,7 +384,8 @@ M  backend/app/transactions/router.py
 | ~~M7 Phase 4（挂载外部 MCP）~~ | 已完成（eec8a5c）：`agent_mcp_servers` 前端 CRUD + 通用 MCP 客户端（stdio/http），chat 快照注入外部知识 + `/{id}/test` |
 | ~~WeKnora 对齐 Phase A（后端）~~ | 已完成（5304768）：16 技能运行时 + 工具循环 + Agent 一等实体 CRUD + 内置投谱助手 + 0012 迁移 + 148 测试 |
 | ~~WeKnora 对齐 Phase B（前端）~~ | 已完成（7cb3ed3）：Agent 卡片列表/编辑器 + 设置重组 + 助手置顶 + 去 as_of + 凭证改名 + tsc/build/E2E 全绿 |
-| ~~用户二次反馈 Phase C~~ | 已完成（本次提交）：0013 会话持久化 + 正经对话框（左历史/右对话/顶部换模型）+ 设置水平 Tabs + `/skills` 技能管理页 + 全局技能总开关；154 passed / tsc/build / 18 断言 E2E 全绿 |
+| ~~用户二次反馈 Phase C~~ | 已完成（5291491）：0013 会话持久化 + 正经对话框（左历史/右对话/顶部换模型）+ 设置水平 Tabs + `/skills` 技能管理页 + 全局技能总开关；154 passed / tsc/build / 18 断言 E2E 全绿 |
+| ~~前端设计感重设计~~ | 已完成（本次提交）：Geist 字体/令牌/精修层/hero 主卡/meta 全落地，tsc/build 0 + DOM 实测。详见 §6.17 |
 | M7 收尾 | 已完成：全量 E2E（23 + 18 断言）与提交；当前 `git status` 干净 |
 
 ## 8. 环境与工具坑（踩过的）
@@ -374,9 +398,11 @@ M  backend/app/transactions/router.py
 - ruff 配置忽略 `B008`（FastAPI `Depends` 模式）。
 - 金额序列化走 `Decimal` → JSON 字符串，测试断言要按 `"2205.000000"` 六位小数写。
 - **impeccable 二进制首次运行会后台下载**：`impeccable context` 在本机会挂起（下载未完成），按技能回退条款直接读项目上下文即可，无需阻塞。
+- **本模型不支持读图**：`read_image` 会报 `model "hy4free" does not declare image input`。需要验证前端视觉时，用本机 Chrome 无头模式替代：`"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --disable-gpu --no-sandbox --virtual-time-budget=6000 --dump-dom URL`，再对 DOM 做文本断言（本次据此确认 hero 真实挂载）；`--screenshot=xxx.png` 可落图供人工查看。
+- **前端视觉验证顺序**：`npx tsc --noEmit` → `npx vite build` → vite dev 逐路由 200 → headless DOM 断言 → 构建产物 grep 确认字体/类名。注意 vite `/src/*.tsx` 返回的是转译后的 JS 模块，grep 类名要按字符串匹配。
 
 ## 9. 建议的接手顺序
 
-1. ~~M2 前端闭环~~（b6cccd2）、~~M3 场外基金后端~~（b4ebed5）、~~M3 前端闭环~~（77db678）、~~M4 导入后端~~（5b80ace）、~~M4 导入前端~~（0fa2a63）、~~M5 行情与收益后端~~（d93ce0c）、~~M5 前端闭环~~（95d2984）、~~M6 风险/Agent 后端~~（21efd98）、~~M6 前端~~（4e8b431）、~~界面审查~~（029a58a）、~~M7 Phase 1-4（skill + 对外 MCP + 模型配置 + 分析会话 + 前端 Agent 页 + 挂载外部 MCP）~~（c21980e/a75c89a/eec8a5c）、~~WeKnora 对齐 Phase A 后端~~（5304768）、~~WeKnora 对齐 Phase B 前端~~（7cb3ed3）、~~用户二次反馈 Phase C（会话/对话框/Tabs/技能页）~~（本次提交）。
-2. 当前状态：M0~M7 整段完成、按 WeKnora 对齐的 Agent 架构重做（后端 + 前端）+ 用户二次反馈 Phase C 均已验收并提交，`git status` 干净。无待办里程碑；后续可选方向（非承诺）：真实 LLM 模型联调、MCP 凭证按工具粒度授权、外部知识库深度检索（weknora 挂载）、会话跨设备同步/分享。
+1. ~~M2 前端闭环~~（b6cccd2）、~~M3 场外基金后端~~（b4ebed5）、~~M3 前端闭环~~（77db678）、~~M4 导入后端~~（5b80ace）、~~M4 导入前端~~（0fa2a63）、~~M5 行情与收益后端~~（d93ce0c）、~~M5 前端闭环~~（95d2984）、~~M6 风险/Agent 后端~~（21efd98）、~~M6 前端~~（4e8b431）、~~界面审查~~（029a58a）、~~M7 Phase 1-4（skill + 对外 MCP + 模型配置 + 分析会话 + 前端 Agent 页 + 挂载外部 MCP）~~（c21980e/a75c89a/eec8a5c）、~~WeKnora 对齐 Phase A 后端~~（5304768）、~~WeKnora 对齐 Phase B 前端~~（7cb3ed3）、~~用户二次反馈 Phase C（会话/对话框/Tabs/技能页）~~（5291491）、~~前端设计系统级精修~~（本次提交，§6.17）。
+2. 当前状态：M0~M7 整段完成、按 WeKnora 对齐的 Agent 架构重做（后端 + 前端）+ 用户二次反馈 Phase C + 前端设计系统级精修均已验收并提交，`git status` 干净。无待办里程碑；后续可选方向（非承诺）：真实 LLM 模型联调、MCP 凭证按工具粒度授权、外部知识库深度检索（weknora 挂载）、会话跨设备同步/分享。
 3. 每次改动后保持：`pytest` 全绿 → `ruff`/`mypy` 干净 → 实测 → 提交。

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
-import { Wallet, ArrowLeftRight, PieChart } from "lucide-react"
+import { Wallet, ArrowLeftRight, PieChart, TrendingUp } from "lucide-react"
 import { accountsApi } from "../api/accounts"
 import { instrumentsApi } from "../api/instruments"
 import { TXN_TYPE_LABELS, fmtAmount, transactionsApi, type Txn } from "../api/transactions"
@@ -29,12 +29,21 @@ export function Dashboard() {
   const noAccounts = accounts !== null && accounts.length === 0
 
   const pnl = summary ? Number(summary.realized_total) + Number(summary.unrealized_total) : null
-  const pnlClass = pnl === null ? "card__value num" : pnl >= 0 ? "card__value num num--up" : "card__value num num--down"
+  const pnlClass = pnl === null ? "metric-card__value num" : pnl >= 0 ? "metric-card__value num num--up" : "metric-card__value num num--down"
+
+  // 资产构成条：现金 / 持仓市值 的相对占比（总资产为 0 时不渲染）
+  const cash = summary ? Number(summary.cash_total) : 0
+  const market = summary ? Number(summary.market_value) : 0
+  const compositionTotal = cash + market
+  const cashPct = compositionTotal > 0 ? Math.round((cash / compositionTotal) * 100) : 0
+  const marketPct = compositionTotal > 0 ? 100 - cashPct : 0
 
   return (
     <div className="page">
       <div className="page__head">
         <div>
+          <p className="page__eyebrow">OVERVIEW</p>
+          <h2 className="page__title">总览</h2>
           <p className="page__sub">你的资产与待办</p>
         </div>
       </div>
@@ -54,26 +63,67 @@ export function Dashboard() {
         </div>
       ) : (
         <>
-          <div className="stat-grid">
-            <div className="card">
-              <div className="card__title">总资产</div>
-              <div className="card__value num">{summary ? fmtAmount(summary.total_assets) : "—"}</div>
-              {summary?.data_quality && summary.data_quality !== "COMPLETE" && (
-                <div className="card__hint">部分持仓缺少报价，市值为估值</div>
-              )}
-            </div>
-            <div className="card">
-              <div className="card__title">现金合计</div>
-              <div className="card__value num">{summary ? fmtAmount(summary.cash_total) : "—"}</div>
-            </div>
-            <div className="card">
-              <div className="card__title">持仓市值</div>
-              <div className="card__value num">{summary ? fmtAmount(summary.market_value) : "—"}</div>
-            </div>
-            <div className="card">
-              <div className="card__title">累计盈亏</div>
-              <div className={pnlClass}>{pnl !== null ? fmtAmount(pnl.toString()) : "—"}</div>
-              <div className="card__hint">已实现 + 未实现</div>
+          <div className="overview">
+            <section className="hero-card" aria-label="总资产">
+              <div className="hero-card__glow" aria-hidden />
+              <div className="hero-card__top">
+                <span className="hero-card__eyebrow">净资产 · NET ASSET VALUE</span>
+                <span className="hero-card__badge">账本口径</span>
+              </div>
+              <div className="hero-card__value num">
+                {summary ? fmtAmount(summary.total_assets) : "—"}
+              </div>
+              <div className="hero-card__composition">
+                <div className="hero-card__bar" aria-hidden>
+                  <span
+                    className="hero-card__bar-seg hero-card__bar-seg--cash"
+                    style={{ width: `${cashPct}%` }}
+                  />
+                  <span
+                    className="hero-card__bar-seg hero-card__bar-seg--market"
+                    style={{ width: `${marketPct}%` }}
+                  />
+                </div>
+                <div className="hero-card__legend">
+                  <span>
+                    <i className="hero-card__dot hero-card__dot--cash" aria-hidden /> 现金 {cashPct}%
+                  </span>
+                  <span>
+                    <i className="hero-card__dot hero-card__dot--market" aria-hidden /> 持仓 {marketPct}%
+                  </span>
+                </div>
+              </div>
+              <p className="hero-card__foot">
+                {summary?.data_quality && summary.data_quality !== "COMPLETE"
+                  ? "部分持仓缺少报价，市值为估值"
+                  : "现金与已估值持仓之和，按复式账本派生"}
+              </p>
+            </section>
+
+            <div className="overview__side">
+              <section className="metric-card" aria-label="现金合计">
+                <div className="metric-card__label">现金合计</div>
+                <div className="metric-card__value num">
+                  {summary ? fmtAmount(summary.cash_total) : "—"}
+                </div>
+                <div className="metric-card__hint">各账户现金科目合计</div>
+              </section>
+              <section className="metric-card" aria-label="持仓市值">
+                <div className="metric-card__label">持仓市值</div>
+                <div className="metric-card__value num">
+                  {summary ? fmtAmount(summary.market_value) : "—"}
+                </div>
+                <div className="metric-card__hint">
+                  {summary ? `持仓 ${summary.valued_positions}/${summary.total_positions} 已估值` : "持仓构成待行情"}
+                </div>
+              </section>
+              <section className="metric-card" aria-label="累计盈亏">
+                <div className="metric-card__label">
+                  累计盈亏 <TrendingUp size={14} aria-hidden />
+                </div>
+                <div className={pnlClass}>{pnl !== null ? fmtAmount(pnl.toString()) : "—"}</div>
+                <div className="metric-card__hint">已实现 + 未实现</div>
+              </section>
             </div>
           </div>
 
