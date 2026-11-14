@@ -1,13 +1,25 @@
 # 交接文档（HANDOFF）
 
-> 最后更新：2026-11-14（含 §6.17 前端设计系统级精修）。给接手的开发者/Agent 看的工作状态说明。
+> 最后更新：2026-11-14（含 a5c16a6：SKILL.md 纠偏、无确认会话归档、模型 Schema 修复、测试库隔离及配置丢失事故）。给接手的开发者/Agent 看的工作状态说明。
+> **接手优先读 §1.1 与 §9**：真实模型密钥需要用户重新配置，完整对话/工具链路尚待复验；不要沿用下方历史阶段的“全部完成”结论。
 > 开始任何代码修改前，先读 [`agent.md`](agent.md)（最高优先级约束），再读本文。
 
 ## 1. 一句话状态
 
 **M0~M6 前后端整段完成并提交**；**界面审查（`impeccable`）已完成**；**M7 Agent 框架 Phase 1-4 已完成并提交**；**按 WeKnora 对齐的 Agent 架构重做（后端 Phase A 5304768 + 前端 Phase B 7cb3ed3）已完成并提交**；**用户二次反馈 Phase C（5291491：历史会话持久化 + 正经对话框 + 对话框内换模型 + 设置水平 Tabs + 技能管理页）已完成并提交**：后端 **154 passed**、ruff/mypy 干净（70 files）；前端 `tsc`/`vite build` 0（2144 modules）+ 真实 HTTP E2E 18 断言全绿。**前端设计系统级精修（`redesign-existing-projects`）已完成**（本次提交）：自托管 Geist 变量字体（此前 IBM Plex Sans 从未加载）+ 令牌重写 + 精修层 + 总览 hero 主卡 + meta/favicon；`tsc`/`vite build` 0（2146 modules）+ headless Chrome DOM 实测通过，详见 §6.17。Phase C 落地 0013 迁移（agent_conversations/agent_messages 两表，agent_id/model_id 故意用 TEXT 不加 FK，删 Agent/模型后历史仍可查）、`/api/v1/agent/conversations` CRUD、chat 每轮问答自动落库 + 最近 20 条历史注入、`ChatIn.model_id` 对话框临时覆盖（优先级 > Agent 绑定 > 默认 > 最新）、`PATCH /definitions/skills/{key}` 全局技能总开关（停用后对所有 Agent 不注入工具）；前端 `/agent` 重写为左历史会话 + 右正经对话框（顶部模型下拉）、`/settings` 三块改水平 Tabs、新增 `/skills` 技能管理页（按 4 分类卡片 + 启停）、菜单加「技能」。M7 早期含系统 skill 文档、对外 MCP 服务（只读资源 + 提案工具，X-Agent-Token 鉴权）、模型配置 CRUD、OpenAI 兼容分析会话（`/agent/chat`）、挂载外部 MCP（通用客户端）。当前 `git status` 干净。
 
-## 1.1 最新修正：真实技能与会话归档（2026-11-14）
+## 1.1 最新修正：真实技能与会话归档（2026-11-14，a5c16a6）
+
+**实际验收**：独立测试库全量 `uv run pytest -q` → **159 passed，19 warnings**；`ruff check` / `ruff format --check` 通过（88 files），`mypy app` 通过（71 source files）；前端 `npm run build` 通过（tsc + Vite，2146 modules）。真实 HTTP 验证 archive 后详情仍存在、DELETE 返回405、归档列表可检索；内置 SKILL.md 列表返回 portfolio-review / toupu-assistant。**不代表真实模型的完整 chat/tool loop 已复验成功**。
+
+**代码落点**：
+- `backend/alembic/versions/0014_conversation_archive.py`：head=0014，新增 archived_at，现有消息不删除。`backend/app/agent/conversations.py`：默认列表仅未归档，`?archived=true` 查看归档，`POST /{id}/archive` / `restore` 幂等且审计，原 DELETE 路由移除（405）。前端会话操作不再调用 confirm。
+- `backend/app/agent/skill_packages.py`：`GET/POST /api/v1/agent/skill-packages`、`PATCH /{id}`；YAML safe_load 校验入口，100KB限制；复用 agent_skills 中 category=instruction/config.content 存正文，与原16项工具区分。内置目录 `backend/skills/*/SKILL.md`；前端技能页支持单文件导入/编辑/启停。
+- `backend/app/agent/chat_router.py`：注入已启用技能名称/描述，新增 load_skill 工具按需加载正文；业务工具仍使用原 enabled_skill_keys 配置。**当前指令包是全局启用目录，尚未实现逐 Agent 绑定；不应宣称已支持每个 Agent 独立选择指令包。**
+- `backend/app/agent/skills.py`：tool_schema 去掉属性内部 required 布尔标记，仅保留对象级 required 数组；新增 JSON Schema 自动校验测试。
+- `backend/tests/conftest.py`：导入 app/db 前设置独立 toupu_test；可指定 TEST_DATABASE_URL，但库名必须以 _test 结尾且不同于开发库。首次自动创建库需要 PostgreSQL CREATEDB 权限；无权限时先由管理员建测试库。
+
+**运行环境**：后端终端启动 uvicorn 127.0.0.1:8000（无 reload，修改 Python 后需重启）；前端沿用 127.0.0.1:5180；不要在日志、文档或回复中输出真实 API key。
 
 - 历史会话不再提供 DELETE，0014 增加 archived_at；POST archive/restore 幂等，归档消息保留，前端直接操作无确认框，支持查看归档与恢复。
 - 技能纠偏：原16项其实是 function tools。新增独立 SKILL.md 指令包目录、导入/编辑/启停界面，内置 toupu-assistant 与 portfolio-review；初始目录+load_skill按需加载正文。现阶段只支持单文件，不执行上传脚本、不支持附件安装。旧工具权限配置保留兼容。
@@ -394,14 +406,16 @@ M  backend/app/transactions/router.py
 | ~~WeKnora 对齐 Phase B（前端）~~ | 已完成（7cb3ed3）：Agent 卡片列表/编辑器 + 设置重组 + 助手置顶 + 去 as_of + 凭证改名 + tsc/build/E2E 全绿 |
 | ~~用户二次反馈 Phase C~~ | 已完成（5291491）：0013 会话持久化 + 正经对话框（左历史/右对话/顶部换模型）+ 设置水平 Tabs + `/skills` 技能管理页 + 全局技能总开关；154 passed / tsc/build / 18 断言 E2E 全绿 |
 | ~~前端设计感重设计~~ | 已完成（本次提交）：Geist 字体/令牌/精修层/hero 主卡/meta 全落地，tsc/build 0 + DOM 实测。详见 §6.17 |
-| M7 收尾 | 已完成：全量 E2E（23 + 18 断言）与提交；当前 `git status` 干净 |
+| ~~SKILL.md / 会话归档 / 工具 Schema / 测试库隔离~~ | 已提交 a5c16a6；159 passed，详见 §1.1 |
+| 真实模型配置恢复与完整联调 | **待办**：用户需重新填写密钥；Schema 修复曾在真实端点返回200，但配置删除后未完成完整对话与工具链路复验 |
+| 指令包逐 Agent 绑定 | 当前仅全局启用目录；如需不同 Agent 使用不同 SKILL.md，需补独立绑定，不要将原工具选择字段误当已实现 |
 
 ## 8. 环境与工具坑（踩过的）
 
 - **shell 管道吞退出码**：`npm run build | tail` 失败也会"成功"，用 `${pipestatus[1]}` 判断。
 - Playwright 工具只能在 `execute` 内用 `tools.playwright.*` 调用；`browser_take_screenshot` 必须传 `scale`。
 - 截图/快照落在仓库 `.playwright-mcp/` 与根目录 `accounts.png`（已提交，无害）。
-- 测试与 dev 共用同一个库（`toupu`），测试会留下数据（账户名带随机后缀区分）。
+- **已修复的高危历史问题**：此前测试与 dev 共用 toupu，且无模型用例会清空 agent_models，导致用户真实配置丢失。a5c16a6 起 tests/conftest.py 强制隔离到 toupu_test，禁止在开发库执行测试；无模型分支改 mock，不删除用户数据。旧测试污染数据仍可能留在开发库，不自动清理。
 - **断言不要依赖全表窗口**（如「最近 100 条交易」）：数据会持续累积导致偶发失败，按 `account_id`/`rule_id` 等过滤；`test_reverse_flow` 已因此修过一次。
 - ruff 配置忽略 `B008`（FastAPI `Depends` 模式）。
 - 金额序列化走 `Decimal` → JSON 字符串，测试断言要按 `"2205.000000"` 六位小数写。
@@ -412,5 +426,7 @@ M  backend/app/transactions/router.py
 ## 9. 建议的接手顺序
 
 1. ~~M2 前端闭环~~（b6cccd2）、~~M3 场外基金后端~~（b4ebed5）、~~M3 前端闭环~~（77db678）、~~M4 导入后端~~（5b80ace）、~~M4 导入前端~~（0fa2a63）、~~M5 行情与收益后端~~（d93ce0c）、~~M5 前端闭环~~（95d2984）、~~M6 风险/Agent 后端~~（21efd98）、~~M6 前端~~（4e8b431）、~~界面审查~~（029a58a）、~~M7 Phase 1-4（skill + 对外 MCP + 模型配置 + 分析会话 + 前端 Agent 页 + 挂载外部 MCP）~~（c21980e/a75c89a/eec8a5c）、~~WeKnora 对齐 Phase A 后端~~（5304768）、~~WeKnora 对齐 Phase B 前端~~（7cb3ed3）、~~用户二次反馈 Phase C（会话/对话框/Tabs/技能页）~~（5291491）、~~前端设计系统级精修~~（本次提交，§6.17）。
-2. 当前状态：M0~M7 整段完成、按 WeKnora 对齐的 Agent 架构重做（后端 + 前端）+ 用户二次反馈 Phase C + 前端设计系统级精修均已验收并提交，`git status` 干净。无待办里程碑；后续可选方向（非承诺）：真实 LLM 模型联调、MCP 凭证按工具粒度授权、外部知识库深度检索（weknora 挂载）、会话跨设备同步/分享。
-3. 每次改动后保持：`pytest` 全绿 → `ruff`/`mypy` 干净 → 实测 → 提交。
+2. **首先完成真实模型恢复与联调**：请用户在设置中重新配置真实端点/模型/密钥，不在聊天中索取或回显密钥。显式选择该模型验证普通问答、load_skill 读取正文、只读业务工具、续聊历史和模型切换。Schema 修复前后真实请求200/502/200是已观察事实，但不是配置删除后的端到端验收。只用 mock 不能关闭此待办。
+3. 核对归档交互：点击直接归档，无确认框；已归档可查和恢复，消息不变，DELETE不可用。技能页展示 SKILL.md 指令包，工具选择仍在助手编辑器；当前指令包全局启用，逐 Agent 绑定尚未实现。
+4. 后续可选方向（非承诺）：指令包逐 Agent 绑定、附件/引用文件支持、MCP 凭证按工具粒度授权、外部知识库深度检索、会话跨设备同步。脚本执行不得无隔离直接开放。
+5. 每次改动后保持：独立测试库 `pytest` 全绿 → `ruff`/`mypy` 干净 → 实测 → 提交。不可为“无模型”测试清空开发库，也不可把测试模型当作用户真实配置。
