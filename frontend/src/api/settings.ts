@@ -1,5 +1,5 @@
-// 设置相关 API：Agent Token 管理（M6 已落地，M7 配置入口的种子）。
-// 模型配置 / 通知渠道 / 知识库等后续里程碑接入。
+// 对外 MCP 访问凭证（别人连本系统 /mcp 时用的 key，scope 决定可调用的工具/资源）。
+// 明文仅创建时返回一次，库内只存哈希；列表与详情都不回显。
 import { api } from "./client"
 
 export interface AgentToken {

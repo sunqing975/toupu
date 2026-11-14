@@ -1,17 +1,18 @@
-// Agent 分析/对话会话 API（M7 §专用会话）：模型只看到只读数据快照 + 问题。
+// Agent 分析/对话会话 API（M7 对齐 WeKnora）：模型按指定 Agent 的
+// system_prompt + 启用技能在工具循环里工作；不再有 as_of / model_id 请求参数。
 import { api } from "./client"
 
 export interface ChatRequest {
   question: string
-  as_of?: string | null
-  model_id?: string | null
+  agent_id?: string | null
 }
 
 export interface ChatResponse {
   answer: string
+  agent_id: string | null
+  agent_name: string | null
   model_id: string | null
   model_name: string | null
-  as_of: string
 }
 
 export const chatApi = {

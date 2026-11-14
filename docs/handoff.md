@@ -1,11 +1,11 @@
 # 交接文档（HANDOFF）
 
-> 最后更新：2026-11-13。给接手的开发者/Agent 看的工作状态说明。
+> 最后更新：2026-11-14。给接手的开发者/Agent 看的工作状态说明。
 > 开始任何代码修改前，先读 [`agent.md`](agent.md)（最高优先级约束），再读本文。
 
 ## 1. 一句话状态
 
-**M0~M6 前后端整段完成并提交**；**界面审查（`impeccable`）已完成**；**M7 Agent 框架 Phase 1-4 已完成并提交**：后端 **138 passed**、ruff/mypy 干净；前端 `tsc`/`vite build` 通过（2141 modules）。M7 含系统 skill 文档、对外 MCP 服务（只读资源 + 提案工具，X-Agent-Token 鉴权）、模型配置 CRUD、OpenAI 兼容分析会话（`/agent/chat`）、前端 `/agent` 页与中文别名 display_name、挂载外部 MCP（通用客户端 + 前端 CRUD + chat 注入外部知识）。剩余：M7 Phase 5 全量 E2E 验收。
+**M0~M6 前后端整段完成并提交**；**界面审查（`impeccable`）已完成**；**M7 Agent 框架 Phase 1-4 已完成并提交**；**按 WeKnora 对齐的 Agent 架构重做（后端 Phase A + 前端 Phase B）已完成并提交**：后端 **148 passed**、ruff/mypy 干净（69 files）；前端 `tsc`/`vite build` 通过（2142 modules）+ 真实 HTTP E2E 23 断言全绿。后端 Phase A（5304768）落地 0012 迁移、完整技能运行时（16 技能 / OpenAI function-calling 工具循环）、Agent 一等实体 CRUD + 内置「投谱助手」幂等种子；前端 Phase B 重写 `/agent` 为 Agent 卡片列表 + 编辑器（技能按分类勾选）、`/settings` 收纳模型配置 / 对外 MCP 访问凭证 / 挂载外部 MCP、助手置顶菜单、去掉 as_of 日期、删知识库空态。M7 早期含系统 skill 文档、对外 MCP 服务（只读资源 + 提案工具，X-Agent-Token 鉴权）、模型配置 CRUD、OpenAI 兼容分析会话（`/agent/chat`）、挂载外部 MCP（通用客户端）。当前 `git status` 干净。
 
 ## 2. 项目定位（摘要，详见 agent.md / README）
 
@@ -73,7 +73,15 @@ uv run mypy app
 | `d93ce0c` | **M5 后端**：MANUAL 行情/净值录入、估值覆盖状态、双口径派生、XIRR/TWR/MDD（Decimal 实现）、快照幂等重建、0008 迁移、27 测试 |
 | `67e7c5b` | 文档：同步 handoff —— M5 后端已完成，新增 §6.9 公式与口径 |
 | `95d2984` | **M5 前端闭环**：行情与收益页（估值明细/行情净值录入/快照重建）+ XIRR/TWR/MDD 指标卡 + `/market` 路由 |
-| 本次提交 | **M6 风险/Agent/计划**：确定性风险引擎与事件（冷却/幂等）+ 规则管理 + Agent Token(sha256)/只读网关/操作审计 + 提案审批只生成 DRAFT + 轻量计划 + 0009 迁移、32 测试；前端 `/risk` + `/plans` 与 E2E 修复 |
+| `21efd98` | **M6 风险/Agent/计划**：确定性风险引擎与事件（冷却/幂等）+ 规则管理 + Agent Token(sha256)/只读网关/操作审计 + 提案审批只生成 DRAFT + 轻量计划 + 0009 迁移、32 测试；前端 `/risk` + `/plans` 与 E2E 修复 |
+| `029a58a` | 界面审查（impeccable）收尾：补 `.btn--ghost` 样式、仪表盘真实数据、占位诚实化、货币符号按 currency |
+| `3f8241e`、`6df6382` | M7 账本只读端点 + 前端账本页/设置页 + 端口改 5180 |
+| `c21980e` | M7 Phase 1-2：系统 skill 文档 + 对外 MCP 服务（10 只读资源 + create_proposal 工具，X-Agent-Token 鉴权）+ 0010 迁移 + resources 重构 |
+| `a75c89a` | M7 Phase 3：模型配置 CRUD + OpenAI 兼容分析会话（`/agent/chat`）+ 前端 `/agent` 页 + 中文别名 display_name（0011 迁移） |
+| `eec8a5c` | M7 Phase 4：挂载外部 MCP（通用客户端 stdio/http）+ 前端 CRUD + chat 注入外部知识 + `/{id}/test` |
+| `5e428ac` | Agent 分析页对话式重构（参考 WeKnora 对话范式：消息气泡 + 输入条 + 分析依据面板） |
+| `5304768` | **WeKnora 对齐 Phase A（后端）**：完整技能运行时（16 技能 / `chat_with_tools` 工具循环）+ Agent 一等实体 CRUD + 内置「投谱助手」幂等种子 + 0012 迁移 + 148 测试 |
+| 本次提交 | **WeKnora 对齐 Phase B（前端）**：`/agent` 重写为 Agent 卡片列表 + 编辑器（技能按分类勾选）/ 分析会话去 as_of；`/settings` 收纳模型配置 / 对外 MCP 访问凭证（原 Agent Token 改名）/ 挂载外部 MCP、删知识库空态；助手置顶菜单；tsc/vite build 0 + 23 断言 E2E 全绿 |
 | `272bab8` | 前端 v0.1：设计令牌（亮/暗）、应用壳导航、总览/账户/品种页（真实 API）、占位页、Toast/Dialog/徽标/骨架屏 |
 | `480e547`、`12d73bc` | UI 文案去行话（「标的」→「投资品种」）；账户类型收紧为券商/基金平台（迁移 0002）；开发模式改本地进程 |
 | `41f3e22` | 产品三件套（product/user-flow/page-spec）+ frontend-design.md |
@@ -92,8 +100,8 @@ uv run mypy app
 - 导入与期初资产：`/api/v1/imports`（模板/批次上传/预览/确认/取消），OPENING_BALANCE 期初现金与期初持仓（期初汇总批次，不伪造成交）。
 - 行情与收益：`/api/v1/market`（行情/净值录入 + 估值覆盖状态）、`/api/v1/performance`（派生汇总 + XIRR/TWR/MDD 状态）、`/api/v1/snapshots`（幂等重建）；快照是可删除重建的派生结果。前端 `/market` 估值明细/录入/快照重建/收益指标卡。
 - 风险与 Agent：`/api/v1/risk`（规则 CRUD、确定性扫描、事件确认/忽略）、`/api/v1/agent`（Token 管理与只读网关、提案创建）、`/api/v1/plans`（计划/行动项、提案审批/拒绝）；Agent 只读、提案审批只生成 DRAFT 不入账。
-- 功能页（前端）：总览、持仓、交易、基金、行情、导入、账户、投资品种（10 项导航，账本/设置仍为占位）。
-- 前端：账户、品种、交易、基金、导入五个功能页 + 持仓页 + 总览，Swiss 极简，信任蓝 `#1E40AF`，红涨绿跌，tabular-nums。
+- 功能页（前端）：总览、助手、持仓、交易、基金、行情、导入、账本、风险、计划、账户、投资品种、设置（13 项导航；助手置顶，账本/设置均已实现，无占位）。
+- 前端：Swiss 极简，信任蓝 `#1E40AF`，红涨绿跌，tabular-nums；亮/暗主题跟随系统。
 
 ## 5. M2（证券交易）后端 —— 已全绿，已提交（03071d8）
 
@@ -293,6 +301,24 @@ M  backend/app/transactions/router.py
   - 前端：`api/mcpServers.ts` + `Settings.tsx` 新增「外部 MCP 服务」区块（列表/添加/编辑/删除/测试连接），替代原「知识库/外部 MCP」空态；知识库单独诚实空态。
 - 验收：`uv run ruff check/fmt` 全绿、`uv run mypy app` Success 67 files、`uv run pytest -q` 138 passed（含 `test_agent_mcp.py` 5 用例：CRUD/transport 校验/test 连接容错/chat 注入外部知识/fetch 无服务返回空）；前端 `tsc`/`vite build` 均 0（2141 modules）。
 
+## 6.15 按 WeKnora 对齐的 Agent 架构重做（5304768 + 本次提交）
+
+用户 m04757 反馈：① 应有两个 Agent（「投谱助手」默认挂载本系统技能 + 通用 Agent 挂不同投资分析技能），要有**技能管理**；② Agent 分析页不是一个对话框；③ 外部 MCP 不该在 Agent Token 下面；④ Agent Token 应是「别人连本系统 MCP 时的 key，用来限制工具使用」（对外 MCP 客户端凭据，语义本就如此，需改名归类）；⑤ 知识库说了不做，页面不体现；⑥ agent 分析页置顶菜单；⑦ 去掉年月日（as_of）输入框；⑧ 管理模型放设置。用户 m04819 确认「技能=完整运行时、Agent=内置+自定义 CRUD、开始落地」。参考 WeKnora 源码 `frontend/src`：`views/agent/AgentList.vue`（Agent 卡片）+ `AgentEditorModal.vue`（model_id/system_prompt/allowed_tools/mcp_services/skills_selection）、`components/skill` + `api/skill`（技能目录 catalog 注册/安装）、MCP 在 integrations/settings、`apiKeyScope.ts` 表明 API Key 是对外访问凭据（scope 限资源范围）、无 as_of 控件。
+
+- **后端 Phase A（5304768）**：
+  - 迁移 `0012`：`agent_skills`（key/name/description/icon/category/builtin/enabled/config JSONB）、`agent_definitions`（key/name/description/icon/is_builtin/avatar_color/system_prompt/model_id/enabled_skill_keys JSONB/mcp_server_ids JSONB + 时间戳）；`app/agent/models.py` 加 `AgentSkill`/`AgentDefinition` ORM（逐列对齐 DDL）。
+  - `app/agent/skills.py`（完整技能运行时）：**16 个技能** = 数据 10（`read_accounts/positions/transactions/quotes/valuation/summary/returns/risk_events/plans/proposals`，委托 `resources.py`）+ 分析 4（`analyze_portfolio_concentration` 算占比/HHI、`analyze_returns_attribution`、`scan_risk_events`、`draft_rebalance_plan` 只返回骨架不建提案）+ 外部知识 1（`read_external_knowledge` 调 `mcp_client.fetch_external_knowledge`）+ 写入受控 1（`create_draft_proposal`：validate_payload → 建 OperationProposal status=PENDING，**绝不入账**）。每个 `_Skill.tool_schema()` 产出 OpenAI function-calling schema；`execute_skill(db, key, arguments)` 返回 JSON 串，未知技能/异常结构化返回不抛。
+  - `app/agent/definitions_router.py`（`/api/v1/agent/definitions`）：`ensure_builtin` 幂等种子内置 `toupu-assistant`（`enabled_skill_keys`=全部 16、`system_prompt` 含「投谱」）；CRUD（POST 重复 key 409「Agent key 已存在」、DELETE 内置 409「内置 Agent 不可删除」）；`GET /skills` 静态路由**必须排在 `/{agent_id}` 前**；`_valid_skill_keys` 用 `skills_mod.SKILLS` 过滤非法技能 key；`model_id` 非法 422。
+  - `app/agent/llm.py` 加 `chat_with_tools(db, messages, tool_schemas, tool_executor, *, model_id, temperature, max_rounds)`（function-calling 工具循环：tool_calls 逐个回填 role:"tool" 消息，直至无 tool_calls 返回 content）。
+  - `app/agent/chat_router.py` 重写：`ChatIn{question, agent_id}`（**去掉 as_of/model_id/预拼快照**）；`_resolve_agent`（缺省 toupu-assistant、未知 404「Agent 不存在」）→ `_resolve_model`（agent.model_id → is_default → 最新）→ `_tool_schemas/_tool_executor`（闭包调 `skills.execute_skill`）→ `llm.chat_with_tools`；无模型 400「尚未配置可用的模型（设置 → Agent 模型配置）」。`ChatOut{answer, agent_id, agent_name, model_id, model_name}`。
+  - 验收：`uv run pytest -q` 148 passed / `ruff check` + `format` 全绿 / `mypy app` Success 69 files；修 4 个旧 chat 契约 stale 测试（fake_chat 新签名、断言工具循环注入、去掉 as_of）。
+- **前端 Phase B（本次提交）**：
+  - 新增 `api/agents.ts`：`AgentSkill`/`AgentDefinition`/`In`/`Patch` + `SKILL_CATEGORY_LABELS`（data 数据查询 / analysis 分析诊断 / knowledge 外部知识 / action 写入受控）+ `agentsApi(list/get/skills/create/update/remove)`；改 `api/chat.ts` 的 `ChatRequest{question, agent_id?}` / `ChatResponse{answer, agent_id, agent_name, model_id, model_name}`。
+  - 重写 `pages/Agent.tsx`（~600 行）：**Agent 一等实体卡片列表**（对齐 AgentList，avatar 6 色、内置 tag、技能数、编辑/删除、选中态）+ 选中 Agent 的「已启用技能」摘要 + 分析会话（消息气泡/typing/建议 chips/分析依据面板，**无 as_of、无模型选择**）+ Agent 编辑器 Dialog（name/key/description/system_prompt/model_id 下拉/avatar 颜色/技能按分类分组勾选）。模型管理迁入设置；切换 Agent 清空会话；`models.length===0` 提示「设置 → 模型配置」。
+  - 重写 `pages/Settings.tsx`（~540 行）：① 模型配置（从 Agent 页迁入，display_name 别名、密钥 password 留空不修改、默认互斥）；② **对外 MCP 访问凭证**（原「Agent Token」改名，文案明确 `/mcp/` + `X-Agent-Token` + scope 决定可调用工具、明文仅一次、库只存哈希）；③ 挂载外部 MCP 服务（Plug 图标，测试/编辑/删除）；**删掉知识库诚实空态卡片**，全文不再出现「Agent Token」措辞。
+  - `App.tsx`：NAV 首行加「助手」置顶、删底部「Agent」；`styles/global.css` 补 `.agent-grid/.agent-card*/__*`、`.skill-pills`、`.skill-picker/skill-group/skill-item`、`.color-row/.color-dot`、`.code-inline`、`.alert--info`、`h3.card__title`（用 h3 选择器而非改 `.card__title`，避免破坏 Dashboard/Market 用 div 的统计小标签）。
+  - 验收：`npx tsc --noEmit` 0、`npx vite build` 0（2142 modules，`index-DVu8nHYy.js 433.14 kB`）；`/tmp/m7_phaseB_e2e.py` 真实 HTTP 23 断言全绿（definitions/skills 形状、16 技能 4 分类、create_draft_proposal、模型密钥不回显、Agent CRUD/内置不可删/技能过滤/model_id 绑定、chat 未知 agent 404、vite 服务 /agent 与 /settings）。
+
 ## 7. 还没做
 
 | 事项 | 说明 |
@@ -311,8 +337,10 @@ M  backend/app/transactions/router.py
 | ~~M7 账本页/设置页脚手架~~ | 已完成（3f8241e/6df6382）：账本只读接口 + 前端账本页/设置页 + 端口改 5180 |
 | ~~M7 Phase 1-2（skill + 对外 MCP）~~ | 已完成（c21980e）：系统 skill 文档 + 对外 MCP 服务 + 00010 迁移 + resources 重构 |
 | ~~M7 Phase 3（模型配置 + 分析会话 + 前端 Agent 页）~~ | 已完成（a75c89a）：模型 CRUD + OpenAI 兼容客户端 + `/agent/chat` + 前端 `/agent` 页 + display_name 别名 |
-| ~~M7 Phase 4（挂载外部 MCP）~~ | 已完成（本次提交）：`agent_mcp_servers` 前端 CRUD + 通用 MCP 客户端（stdio/http），chat 快照注入外部知识 + `/{id}/test` |
-| M7 Phase 5（验收） | 待做：Phase 4 合入后全量 E2E + 提交 |
+| ~~M7 Phase 4（挂载外部 MCP）~~ | 已完成（eec8a5c）：`agent_mcp_servers` 前端 CRUD + 通用 MCP 客户端（stdio/http），chat 快照注入外部知识 + `/{id}/test` |
+| ~~WeKnora 对齐 Phase A（后端）~~ | 已完成（5304768）：16 技能运行时 + 工具循环 + Agent 一等实体 CRUD + 内置投谱助手 + 0012 迁移 + 148 测试 |
+| ~~WeKnora 对齐 Phase B（前端）~~ | 已完成（本次提交）：Agent 卡片列表/编辑器 + 设置重组 + 助手置顶 + 去 as_of + 凭证改名 + tsc/build/E2E 全绿 |
+| M7 收尾 | 已完成：全量 E2E（23 断言）与提交；当前 `git status` 干净 |
 
 ## 8. 环境与工具坑（踩过的）
 
@@ -327,6 +355,6 @@ M  backend/app/transactions/router.py
 
 ## 9. 建议的接手顺序
 
-1. ~~M2 前端闭环~~（b6cccd2）、~~M3 场外基金后端~~（b4ebed5）、~~M3 前端闭环~~（77db678）、~~M4 导入后端~~（5b80ace）、~~M4 导入前端~~（0fa2a63）、~~M5 行情与收益后端~~（d93ce0c）、~~M5 前端闭环~~（95d2984）、~~M6 风险/Agent 后端~~（21efd98）、~~M6 前端~~（4e8b431）、~~界面审查~~（029a58a）、~~M7 Phase 1-4（skill + 对外 MCP + 模型配置 + 分析会话 + 前端 Agent 页 + 挂载外部 MCP）~~（本次提交）。
-2. 下一步：M7 Phase 5（全量 E2E + 提交）→ 收尾。
+1. ~~M2 前端闭环~~（b6cccd2）、~~M3 场外基金后端~~（b4ebed5）、~~M3 前端闭环~~（77db678）、~~M4 导入后端~~（5b80ace）、~~M4 导入前端~~（0fa2a63）、~~M5 行情与收益后端~~（d93ce0c）、~~M5 前端闭环~~（95d2984）、~~M6 风险/Agent 后端~~（21efd98）、~~M6 前端~~（4e8b431）、~~界面审查~~（029a58a）、~~M7 Phase 1-4（skill + 对外 MCP + 模型配置 + 分析会话 + 前端 Agent 页 + 挂载外部 MCP）~~（c21980e/a75c89a/eec8a5c）、~~WeKnora 对齐 Phase A 后端~~（5304768）、~~WeKnora 对齐 Phase B 前端~~（本次提交）。
+2. 当前状态：M0~M7 整段完成、按 WeKnora 对齐的 Agent 架构重做（后端 + 前端）均已验收并提交，`git status` 干净。无待办里程碑；后续可选方向（非承诺）：真实 LLM 模型联调、MCP 凭证按工具粒度授权、Agent 会话持久化、外部知识库深度检索（weknora 挂载）。
 3. 每次改动后保持：`pytest` 全绿 → `ruff`/`mypy` 干净 → 实测 → 提交。

@@ -31,6 +31,7 @@ import { Agent } from "./pages/Agent"
 
 
 const NAV = [
+  { to: "/agent", label: "助手", icon: Bot, title: "投资助手" },
   { to: "/", label: "总览", icon: LayoutDashboard, title: "总览" },
   { to: "/positions", label: "持仓", icon: ChartPie, title: "持仓" },
   { to: "/transactions", label: "交易", icon: ArrowLeftRight, title: "交易" },
@@ -43,7 +44,6 @@ const NAV = [
   { to: "/accounts", label: "账户", icon: Wallet, title: "账户" },
   { to: "/instruments", label: "投资品种", icon: Tags, title: "投资品种" },
   { to: "/settings", label: "设置", icon: SettingsIcon, title: "设置" },
-  { to: "/agent", label: "Agent", icon: Bot, title: "Agent 分析" },
 ]
 
 function Shell() {
