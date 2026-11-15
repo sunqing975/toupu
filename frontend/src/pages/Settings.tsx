@@ -2,6 +2,7 @@ import { useEffect, useState } from "react"
 import { Blocks, Copy, Cpu, KeyRound, Plug, Plus, Server, Trash2 } from "lucide-react"
 import { Link, useSearchParams } from "react-router-dom"
 import { Skills } from "./Skills"
+import { BackupSettings } from "../components/BackupSettings"
 import {
   ALL_SCOPES,
   SCOPE_LABELS,
@@ -43,13 +44,14 @@ const EMPTY_MODEL: ModelForm = {
   is_default: false,
 }
 
-type SettingsTab = "models" | "tokens" | "mcp" | "skills"
+type SettingsTab = "models" | "tokens" | "mcp" | "skills" | "backup"
 
 const TABS: { key: SettingsTab; label: string; icon: typeof Cpu }[] = [
   { key: "models", label: "模型配置", icon: Cpu },
   { key: "tokens", label: "访问凭证", icon: KeyRound },
   { key: "mcp", label: "外部 MCP", icon: Plug },
   { key: "skills", label: "技能", icon: Blocks },
+  { key: "backup", label: "备份与恢复", icon: Server },
 ]
 
 export function Settings() {
@@ -336,6 +338,7 @@ export function Settings() {
       </div>
 
       {tab === "skills" && <Skills />}
+      {tab === "backup" && <BackupSettings />}
 
       {/* —— 1. 模型配置 —— */}
       {tab === "models" && (

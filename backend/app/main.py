@@ -20,6 +20,7 @@ from app.agent.runs import router as agent_runs_router
 from app.agent.skill_packages import router as skill_packages_router
 from app.core import errors
 from app.core.config import get_settings
+from app.db.backup import router as backups_router
 from app.funds.advisory import router as advisory_router
 from app.funds.router import router as funds_router
 from app.imports.platform_assets import router as platform_assets_router
@@ -69,6 +70,7 @@ def create_app() -> FastAPI:
     app = FastAPI(title="投谱 Toupu", version=settings.app_version, lifespan=lifespan)
 
     errors.register_error_handlers(app)
+    app.include_router(backups_router)
     app.include_router(accounts_router)
     app.include_router(instruments_router)
     app.include_router(transactions_router)

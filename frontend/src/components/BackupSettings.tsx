@@ -1,0 +1,13 @@
+import { useState } from "react"
+export function BackupSettings(){
+ const [file,setFile]=useState<File|null>(null)
+ const [mode,setMode]=useState("incremental")
+ const [preview,setPreview]=useState<Record<string,number>|null>(null)
+ const [confirmation,setConfirmation]=useState("")
+ const [busy,setBusy]=useState(false)
+ const [message,setMessage]=useState("")
+ async function request(path:string, body:FormData){const r=await fetch(path,{method:"POST",body});const d=await r.json();if(!r.ok)throw new Error(d.error?.message??d.detail??"请求失败");return d}
+ async function inspect(){if(!file)return;setBusy(true);setMessage("");try{const f=new FormData();f.set("file",file);const d=await request("/api/v1/backups/preview",f);setPreview(d.tables)}catch(e){setMessage((e as Error).message)}finally{setBusy(false)}}
+ async function restore(){if(!file||!preview)return;setBusy(true);try{const f=new FormData();f.set("file",file);f.set("mode",mode);f.set("confirmation",confirmation);const d=await request("/api/v1/backups/restore",f);setMessage("恢复成功，写入 "+d.changed+" 行。恢复前安全备份："+d.safety_backup);setPreview(null);setConfirmation("")}catch(e){setMessage((e as Error).message)}finally{setBusy(false)}}
+ return <section className="card stack" style={{padding:"var(--space-4)"}}><h2>完整数据备份与恢复</h2><p className="banner">包含全部数据库数据和模型密钥、MCP凭据等敏感信息，未加密，请保存在可信位置。仅同版本投谱可恢复；不执行外部SQL。文件为投谱专用SQL注释封装，不是可直接用psql执行的SQL脚本。</p><a className="btn btn--secondary" href="/api/v1/backups/export">下载完整备份（.sql）</a><label className="field"><span className="field__label">选择备份（最多50MB）</span><input type="file" accept=".sql" disabled={busy} onChange={e=>{setFile(e.target.files?.[0]??null);setPreview(null);setConfirmation("")}}/></label><button className="btn btn--secondary" disabled={!file||busy} onClick={inspect}>检查并预览</button>{preview&&<><details><summary>恢复范围：{Object.keys(preview).length} 张表</summary><ul>{Object.entries(preview).map(([t,n])=><li key={t}>{t}：{n} 行</li>)}</ul></details><label>恢复方式<select className="select" disabled={busy} value={mode} onChange={e=>setMode(e.target.value)}><option value="incremental">增量导入：同主键跳过</option><option value="overwrite">覆盖导入：同主键覆盖，其他记录保留</option><option value="clear">清空导入：替换全部数据库数据</option></select></label><p className="muted">根据实际主键（包括联合主键）去重；不同ID但相同业务唯一键会拒绝整批，不擅自合并。恢复前自动备份，失败整批回滚。覆盖和清空是维护恢复，会修改历史。</p><input className="input" placeholder="输入：确认恢复" disabled={busy} value={confirmation} onChange={e=>setConfirmation(e.target.value)}/><button className="btn btn--destructive" disabled={busy||confirmation!=="确认恢复"} onClick={restore}>{busy?"处理中…":"执行恢复"}</button></>}{message&&<p role="status">{message}</p>}</section>
+}
