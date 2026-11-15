@@ -24,6 +24,7 @@ export interface AgentDefinition {
   system_prompt: string
   model_id: string | null
   enabled_skill_keys: string[]
+  skill_package_keys: string[]
   mcp_server_ids: string[]
   created_at: string
   updated_at: string
@@ -38,6 +39,7 @@ export interface AgentDefinitionIn {
   system_prompt?: string
   model_id?: string | null
   enabled_skill_keys?: string[]
+  skill_package_keys?: string[]
   mcp_server_ids?: string[]
 }
 
@@ -49,6 +51,7 @@ export interface AgentDefinitionPatch {
   system_prompt?: string
   model_id?: string | null
   enabled_skill_keys?: string[]
+  skill_package_keys?: string[]
   mcp_server_ids?: string[]
 }
 

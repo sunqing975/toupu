@@ -161,6 +161,13 @@ def _entry_to_out(db: Session, entry: JournalEntry | None) -> EntryOut | None:
 
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=TransactionDetail)
 def create_transaction(payload: TransactionIn, db: Session = Depends(get_db)) -> TransactionDetail:
+    detail = create_draft(payload, db)
+    db.commit()
+    return detail
+
+
+def create_draft(payload: TransactionIn, db: Session) -> TransactionDetail:
+    """Build a draft without committing; caller owns the transaction."""
     if db.get(InvestmentAccount, payload.account_id) is None:
         raise HTTPException(status_code=404, detail="转出账户不存在")
     if (
@@ -229,7 +236,7 @@ def create_transaction(payload: TransactionIn, db: Session = Depends(get_db)) ->
                         net_amount=net,
                     )
                 )
-        db.commit()
+        db.flush()
     except Exception:
         db.rollback()
         raise BusinessError("重复请求：相同幂等键的交易已存在") from None
@@ -245,11 +252,20 @@ def list_transactions(
     status_filter: Literal["DRAFT", "CONFIRMED", "PARTIAL", "POSTED", "REVERSED", "CANCELLED"]
     | None = None,
     account_id: uuid.UUID | None = None,
+    investment_only: bool = False,
+    active_only: bool = False,
+    instrument_id: uuid.UUID | None = None,
     db: Session = Depends(get_db),
 ) -> list[InvestmentTransaction]:
     query = select(InvestmentTransaction).order_by(
         InvestmentTransaction.business_date.desc(), InvestmentTransaction.created_at.desc()
     )
+    if instrument_id:
+        query = query.where(InvestmentTransaction.instrument_id == instrument_id)
+    if active_only:
+        query = query.where(InvestmentTransaction.status.notin_(["CANCELLED", "REVERSED"]))
+    if investment_only:
+        query = query.where(InvestmentTransaction.transaction_type.in_(SECURITY_TYPES))
     if status_filter:
         query = query.where(InvestmentTransaction.status == status_filter)
     if account_id:

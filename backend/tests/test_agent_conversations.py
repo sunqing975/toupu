@@ -7,6 +7,7 @@
 - 技能总开关：停用后不再注入工具、重新启用恢复。
 """
 
+import json
 import uuid
 from unittest.mock import patch
 
@@ -29,14 +30,15 @@ def _create_model(name="模型A", is_default=True):
         },
     )
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return _chat_body(resp)
 
 
 def _fake_chat(db, messages, tool_schemas, tool_executor, *, model_id=None, **kwargs):
     # 记录注入给 LLM 的消息，便于断言「历史续聊」。
     _fake_chat.last_messages = messages
     _fake_chat.last_schemas = tool_schemas
-    return "这是一段模拟回答。"
+    yield {"type": "content", "text": "这是一段模拟回答。"}
+    yield {"type": "complete"}
 
 
 def test_conversation_crud():
@@ -75,14 +77,14 @@ def test_conversation_not_found():
 
 def test_chat_persists_messages_and_history():
     _create_model()
-    with patch("app.agent.llm.chat_with_tools", side_effect=_fake_chat):
+    with patch("app.agent.chat_router.stream_with_tools", side_effect=_fake_chat):
         first = client.post(
             "/api/v1/agent/chat",
             json={"question": "第一个问题：总资产多少？"},
         )
         assert first.status_code == 200, first.text
-        cid = first.json()["conversation_id"]
-        assert first.json()["title"] == "第一个问题：总资产多少？"
+        cid = _chat_body(first)["conversation_id"]
+        assert _chat_body(first)["title"] == "第一个问题：总资产多少？"
 
         # 续聊：历史应被注入，且会话里已有两条消息（user+assistant）
         second = client.post(
@@ -90,7 +92,7 @@ def test_chat_persists_messages_and_history():
             json={"question": "第二个问题：那风险呢？", "conversation_id": cid},
         )
         assert second.status_code == 200, second.text
-        assert second.json()["conversation_id"] == cid
+        assert _chat_body(second)["conversation_id"] == cid
         assert "第一个问题" in "\n".join(m["content"] for m in _fake_chat.last_messages), (
             "续聊必须把上轮问答注入 LLM"
         )
@@ -116,13 +118,13 @@ def test_chat_persists_messages_and_history():
 def test_chat_model_override_takes_priority():
     default = _create_model("默认模型", is_default=True)
     override = _create_model("临时模型", is_default=False)
-    with patch("app.agent.llm.chat_with_tools", side_effect=_fake_chat) as mocked:
+    with patch("app.agent.chat_router.stream_with_tools", side_effect=_fake_chat) as mocked:
         resp = client.post(
             "/api/v1/agent/chat",
             json={"question": "用临时模型", "model_id": override["id"]},
         )
         assert resp.status_code == 200, resp.text
-        assert resp.json()["model_id"] == override["id"]
+        assert _chat_body(resp)["model_id"] == override["id"]
         assert mocked.call_args.kwargs["model_id"] == override["id"]
     assert default["id"] != override["id"]
 
@@ -132,7 +134,7 @@ def test_skill_toggle_affects_tool_injection():
     key = "read_summary"
     # 先确保启用
     client.patch(f"/api/v1/agent/definitions/skills/{key}", json={"enabled": True})
-    with patch("app.agent.llm.chat_with_tools", side_effect=_fake_chat):
+    with patch("app.agent.chat_router.stream_with_tools", side_effect=_fake_chat):
         client.post("/api/v1/agent/chat", json={"question": "概览"})
         names_on = [s.get("function", {}).get("name") for s in _fake_chat.last_schemas]
         assert key in names_on
@@ -141,7 +143,7 @@ def test_skill_toggle_affects_tool_injection():
     off = client.patch(f"/api/v1/agent/definitions/skills/{key}", json={"enabled": False})
     assert off.status_code == 200, off.text
     assert off.json()["enabled"] is False
-    with patch("app.agent.llm.chat_with_tools", side_effect=_fake_chat):
+    with patch("app.agent.chat_router.stream_with_tools", side_effect=_fake_chat):
         client.post("/api/v1/agent/chat", json={"question": "概览2"})
         names_off = [s.get("function", {}).get("name") for s in _fake_chat.last_schemas]
         assert key not in names_off
@@ -153,3 +155,16 @@ def test_skill_toggle_affects_tool_injection():
 def test_skill_toggle_unknown_404():
     resp = client.patch("/api/v1/agent/definitions/skills/not_a_skill", json={"enabled": False})
     assert resp.status_code == 404
+
+
+def _chat_body(response):
+    if "text/event-stream" not in response.headers.get("content-type", ""):
+        return response.json()
+    events = [
+        json.loads(line[6:]) for line in response.text.splitlines() if line.startswith("data: ")
+    ]
+    assert not any(e["type"] == "error" for e in events), events
+    return {
+        **next(e for e in events if e["type"] == "meta"),
+        "answer": "".join(e.get("text", "") for e in events if e["type"] == "content"),
+    }

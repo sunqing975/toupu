@@ -6,6 +6,7 @@ import { fmtAmount } from "../api/transactions"
 import type { InvestmentAccount, PositionOut } from "../api/types"
 import { EmptyState } from "../components/EmptyState"
 import { Skeleton } from "../components/Skeleton"
+import { AdvisoryHoldings } from "../components/AdvisoryHoldings"
 
 const INSTRUMENT_TYPE_LABELS: Record<string, string> = {
   STOCK: "股票",
@@ -38,7 +39,7 @@ export function Positions() {
     <div className="page">
       <div className="page__head">
         <div>
-          <p className="page__sub">按账户 × 品种聚合的持仓数量与移动加权平均成本</p>
+          <p className="page__sub">普通持仓按份额与成本核算；下方独立展示帮你投组合的已录金额与收益</p>
         </div>
       </div>
 
@@ -119,6 +120,7 @@ export function Positions() {
           </table>
         )}
       </div>
+      <AdvisoryHoldings accountId={accountId} />
     </div>
   )
 }

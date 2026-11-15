@@ -3,6 +3,7 @@
 # Agent 专用会话只读地拉取这些服务的资源。绝不自动调用会修改外部系统的工具。
 from __future__ import annotations
 
+import json
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -68,6 +69,21 @@ def _out(row: AgentMcpServer) -> McpServerOut:
 
 
 def _validate(payload, *, is_create: bool) -> None:
+    config = payload.config or {}
+    if "args" in config and (
+        not isinstance(config["args"], list) or any(not isinstance(v, str) for v in config["args"])
+    ):
+        raise HTTPException(422, "args 必须为字符串数组")
+    for key in ("env", "headers"):
+        if key in config and (
+            not isinstance(config[key], dict)
+            or any(not isinstance(k, str) or not isinstance(v, str) for k, v in config[key].items())
+        ):
+            raise HTTPException(422, f"{key} 必须为字符串键值对象")
+    if "cwd" in config and not isinstance(config["cwd"], str):
+        raise HTTPException(422, "cwd 必须为字符串")
+    if not payload.name.strip():
+        raise HTTPException(422, "服务名称不能为空")
     if payload.transport not in ("stdio", "http"):
         raise HTTPException(status_code=422, detail="transport 仅支持 stdio 或 http")
     if payload.transport == "stdio" and not payload.command:
@@ -93,6 +109,55 @@ def create_server(payload: McpServerIn, db: Session = Depends(get_db)) -> McpSer
     record_audit(db, "agent.mcp.create", "agent_mcp_server", str(row.id), {"name": payload.name})
     db.commit()
     return _out(row)
+
+
+class JsonImport(BaseModel):
+    json_text: str
+
+
+@router.post("/import", response_model=list[McpServerOut], status_code=201)
+def import_servers(payload: JsonImport, db: Session = Depends(get_db)):
+    """Validate the complete pasted configuration before storing anything; never launch commands."""
+    if len(payload.json_text.encode()) > 100_000:
+        raise HTTPException(422, "JSON 配置不得超过100KB")
+    try:
+        data = json.loads(payload.json_text)
+        entries = data["mcpServers"]
+        if not isinstance(entries, dict) or not 1 <= len(entries) <= 50:
+            raise ValueError()
+        parsed = []
+        for name, item in entries.items():
+            if not isinstance(item, dict):
+                raise ValueError()
+            transport = item.get("transport", item.get("type")) or (
+                "http" if item.get("url") else "stdio"
+            )
+            if transport == "streamable-http":
+                transport = "http"
+            server = McpServerIn(
+                name=name,
+                transport=transport,
+                command=item.get("command"),
+                url=item.get("url"),
+                enabled=False,
+                config={k: item[k] for k in ("args", "env", "cwd", "headers") if k in item},
+            )
+            _validate(server, is_create=True)
+            parsed.append(server)
+    except (ValueError, KeyError, TypeError):
+        raise HTTPException(
+            422, "需要有效的 mcpServers JSON 对象，每个服务须包含 command 或 url"
+        ) from None
+    existing = set(db.scalars(select(AgentMcpServer.name)).all())
+    if any(p.name in existing for p in parsed):
+        raise HTTPException(409, "存在同名 MCP 服务，请先修改名称；本次未导入")
+    rows = [AgentMcpServer(**p.model_dump()) for p in parsed]
+    db.add_all(rows)
+    db.flush()
+    for row in rows:
+        record_audit(db, "agent.mcp.import", "agent_mcp_server", str(row.id), {"name": row.name})
+    db.commit()
+    return [_out(row) for row in rows]
 
 
 @router.get("", response_model=list[McpServerOut])
@@ -124,10 +189,20 @@ def update_server(
     transport = data.get("transport", row.transport)
     if transport not in ("stdio", "http"):
         raise HTTPException(status_code=422, detail="transport 仅支持 stdio 或 http")
-    if transport == "stdio" and ("command" in data) and not (data.get("command") or row.command):
+    if transport == "stdio" and not data.get("command", row.command):
         raise HTTPException(status_code=422, detail="stdio 传输需要 command")
-    if transport == "http" and ("url" in data) and not (data.get("url") or row.url):
+    if transport == "http" and not data.get("url", row.url):
         raise HTTPException(status_code=422, detail="http 传输需要 url")
+    _validate(
+        McpServerIn(
+            name=data.get("name", row.name),
+            transport=transport,
+            command=data.get("command", row.command),
+            url=data.get("url", row.url),
+            config=data.get("config", row.config),
+        ),
+        is_create=False,
+    )
     for field, value in data.items():
         setattr(row, field, value)
     db.commit()

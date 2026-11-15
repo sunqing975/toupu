@@ -11,13 +11,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.agent import skills as skills_mod
-from app.agent.models import AgentDefinition, AgentSkill
+from app.agent.models import AgentDefinition, AgentMcpServer, AgentSkill
+from app.agent.roles import OPERATOR_DESCRIPTION, OPERATOR_PROMPT, operator_tools
 from app.db.session import get_db
 
 router = APIRouter(prefix="/api/v1/agent/definitions", tags=["agent-definitions"])
 
 
-# 内置「投谱助手」：默认挂载全部技能与外部知识检索（不挂钩具体写工具由技能本身约束）。
+# 内置操作助手不挂载投资分析工具；投资 Agent 后续单独建立。
 _BUILTIN_KEY = "toupu-assistant"
 _BUILTIN_CREATED = False
 
@@ -37,16 +38,12 @@ def ensure_builtin(db: Session) -> None:
             AgentDefinition(
                 key=_BUILTIN_KEY,
                 name="投谱助手",
-                description="内置投资分析助手：默认挂载本系统全部数据/分析技能与外部知识检索。",
+                description=OPERATOR_DESCRIPTION,
                 icon="Bot",
                 is_builtin=True,
                 avatar_color="#1e40af",
-                system_prompt=(
-                    "你是投谱 Toupu 的内置投资分析助手。你只能使用提供的只读/分析工具回答，"
-                    "不要编造工具之外的持仓、交易或账户信息。任何会改变账本的操作，"
-                    "都必须通过 create_draft_proposal 生成待审批草稿，由用户在网页端确认。"
-                ),
-                enabled_skill_keys=[k for k in skills_mod.SKILLS],
+                system_prompt=OPERATOR_PROMPT,
+                enabled_skill_keys=operator_tools(skills_mod.SKILLS),
                 mcp_server_ids=[],
             )
         )
@@ -97,6 +94,7 @@ class AgentDefinitionOut(BaseModel):
     system_prompt: str
     model_id: uuid.UUID | None = None
     enabled_skill_keys: list[str]
+    skill_package_keys: list[str] = []
     mcp_server_ids: list[str]
     created_at: datetime
     updated_at: datetime
@@ -115,6 +113,7 @@ class AgentDefinitionIn(BaseModel):
     system_prompt: str = ""
     model_id: str | None = None
     enabled_skill_keys: list[str] = []
+    skill_package_keys: list[str] = []
     mcp_server_ids: list[str] = []
 
 
@@ -126,6 +125,7 @@ class AgentDefinitionPatch(BaseModel):
     system_prompt: str | None = None
     model_id: str | None = None
     enabled_skill_keys: list[str] | None = None
+    skill_package_keys: list[str] | None = None
     mcp_server_ids: list[str] | None = None
 
 
@@ -200,6 +200,15 @@ def get_definition(agent_id: uuid.UUID, db: Session = Depends(get_db)) -> AgentD
     return agent
 
 
+def _validate_bindings(db: Session, packages: list[str], servers: list[str]) -> None:
+    known = set(db.scalars(select(AgentSkill.key).where(AgentSkill.category == "instruction")))
+    if any(key not in known for key in packages):
+        raise HTTPException(422, "技能目录不存在，请刷新后重新选择")
+    known_servers = {str(value) for value in db.scalars(select(AgentMcpServer.id))}
+    if any(value not in known_servers for value in servers):
+        raise HTTPException(422, "MCP 服务不存在，请刷新后重新选择")
+
+
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=AgentDefinitionOut)
 def create_definition(
     payload: AgentDefinitionIn, db: Session = Depends(get_db)
@@ -214,6 +223,7 @@ def create_definition(
         raise HTTPException(status_code=409, detail="Agent key 已存在")
     if not payload.key.strip() or not payload.name.strip():
         raise HTTPException(status_code=422, detail="key 与 name 不能为空")
+    _validate_bindings(db, payload.skill_package_keys, payload.mcp_server_ids)
     agent = AgentDefinition(
         key=payload.key.strip(),
         name=payload.name.strip(),
@@ -224,6 +234,7 @@ def create_definition(
         model_id=_as_uuid(payload.model_id),
         enabled_skill_keys=_valid_skill_keys(payload.enabled_skill_keys),
         mcp_server_ids=list(payload.mcp_server_ids),
+        skill_package_keys=list(payload.skill_package_keys),
     )
     db.add(agent)
     db.commit()
@@ -238,6 +249,11 @@ def update_definition(
     agent = db.get(AgentDefinition, agent_id)
     if agent is None:
         raise HTTPException(status_code=404, detail="Agent 不存在")
+    _validate_bindings(
+        db,
+        payload.skill_package_keys if payload.skill_package_keys is not None else [],
+        payload.mcp_server_ids if payload.mcp_server_ids is not None else [],
+    )
     if payload.name is not None:
         agent.name = payload.name.strip()
     if payload.description is not None:
@@ -252,6 +268,8 @@ def update_definition(
         agent.model_id = _as_uuid(payload.model_id)
     if payload.enabled_skill_keys is not None:
         agent.enabled_skill_keys = _valid_skill_keys(payload.enabled_skill_keys)
+    if payload.skill_package_keys is not None:
+        agent.skill_package_keys = list(payload.skill_package_keys)
     if payload.mcp_server_ids is not None:
         agent.mcp_server_ids = list(payload.mcp_server_ids)
     agent.updated_at = datetime.now(UTC)

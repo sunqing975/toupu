@@ -157,7 +157,8 @@ def reduce_position(db: Session, txn: InvestmentTransaction, disposals: list[Dis
                 )
             )
             if lot.remaining_quantity == 0:
-                db.delete(lot)
+                # Keep disposal FK/audit trail even when a partial sale consumes a whole lot.
+                lot.total_cost = Decimal(0)
                 lots.pop(0)
 
     # 剩余批次按「新单位成本 = 剩余总成本 / 剩余总数量」重算成本，Σ 保持精确（尾差归最后批次）

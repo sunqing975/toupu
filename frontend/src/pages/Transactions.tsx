@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { useNavigate } from "react-router-dom"
 import { ArrowLeftRight, Check, Ban, Undo2, Send, Eye, Plus, Trash2 } from "lucide-react"
 import { accountsApi } from "../api/accounts"
 import { instrumentsApi } from "../api/instruments"
@@ -51,7 +52,7 @@ const EMPTY_EXECUTION: ExecutionDraft = {
 }
 
 const EMPTY_FORM: FormState = {
-  transaction_type: "DEPOSIT",
+  transaction_type: "STOCK_BUY",
   account_id: "",
   counter_account_id: "",
   business_date: today(),
@@ -61,8 +62,9 @@ const EMPTY_FORM: FormState = {
   executions: [{ ...EMPTY_EXECUTION }],
 }
 
-export function Transactions() {
+export function Transactions({ embedded = false, dialogOnly = false, createRequest = 0, detailId, onChanged, createOpen, onCreateClose, marketSelector }: { embedded?: boolean; dialogOnly?: boolean; createRequest?: number; detailId?: string; onChanged?: () => void; createOpen?: boolean; onCreateClose?: () => void; marketSelector?: import("react").ReactNode }) {
   const toast = useToast()
+  const navigate = useNavigate()
   const [txns, setTxns] = useState<Txn[] | null>(null)
   const [accounts, setAccounts] = useState<InvestmentAccount[]>([])
   const [instruments, setInstruments] = useState<Instrument[]>([])
@@ -73,6 +75,8 @@ export function Transactions() {
   const [busy, setBusy] = useState(false)
   const [detail, setDetail] = useState<TxnDetail | null>(null)
   const [reversing, setReversing] = useState<Txn | null>(null)
+  useEffect(() => { if (createRequest) setFormOpen(true) }, [createRequest])
+  useEffect(() => { if (detailId) transactionsApi.get(detailId).then(setDetail).catch(e => toast("error", (e as Error).message)) }, [detailId])
 
   const accountName = (id: string | null) =>
     accounts.find((a) => a.id === id)?.name ?? (id ? "未知账户" : "—")
@@ -86,7 +90,7 @@ export function Transactions() {
 
   const load = (filter = statusFilter) => {
     transactionsApi
-      .list({ status_filter: filter || undefined })
+      .list({ status_filter: filter || undefined, investment_only: true })
       .then(setTxns)
       .catch((e: unknown) => setError(String((e as Error).message)))
   }
@@ -126,8 +130,10 @@ export function Transactions() {
       await transactionsApi.create(body)
       toast("success", "交易草稿已保存，确认后可入账")
       setFormOpen(false)
+      onCreateClose?.()
       setForm(EMPTY_FORM)
       load()
+      onChanged?.()
     } catch (err) {
       toast("error", (err as Error).message)
     } finally {
@@ -141,6 +147,7 @@ export function Transactions() {
       await transactionsApi[action](id)
       toast("success", { confirm: "交易已确认", post: "交易已入账", cancel: "交易已取消" }[action])
       load()
+      onChanged?.()
     } catch (err) {
       toast("error", (err as Error).message)
     } finally {
@@ -156,6 +163,7 @@ export function Transactions() {
       toast("success", "已冲正，原记录保留")
       setReversing(null)
       load()
+      onChanged?.()
     } catch (err) {
       toast("error", (err as Error).message)
       setReversing(null)
@@ -172,7 +180,9 @@ export function Transactions() {
     }
   }
 
-  const actions = (t: Txn) => (
+  const actions = (t: Txn) => ["FUND_SUBSCRIBE", "FUND_REDEEM", "CASH_DIVIDEND", "DIVIDEND_REINVEST"].includes(t.transaction_type) ? (
+    <button className="btn btn--secondary" onClick={() => navigate(`/transactions?type=fund&order=${t.id}`)}>基金详情 / 办理</button>
+  ) : (
     <span className="cell--actions" style={{ display: "inline-flex", gap: 6 }}>
       {t.status === "DRAFT" && (
         <button className="btn btn--secondary" disabled={busy} onClick={() => act(t.id, "confirm")}>
@@ -201,10 +211,11 @@ export function Transactions() {
   )
 
   return (
-    <div className="page">
+    <div className={embedded ? "stack" : "page"}>
+      {!dialogOnly && <>
       <div className="page__head">
         <div>
-          <p className="page__sub">入金、出金与账户间转账；草稿确认后才可入账</p>
+          <p className="page__sub">只记录股票和场内ETF的实际买入、卖出；无需单独录入入金或出金</p>
         </div>
         <button className="btn btn--primary" onClick={() => setFormOpen(true)}>
           <ArrowLeftRight size={16} aria-hidden />
@@ -293,8 +304,10 @@ export function Transactions() {
         )}
       </div>
 
+      </>}
       {/* 新建交易 */}
-      <Dialog open={formOpen} title="新建交易" onClose={() => setFormOpen(false)}>
+      <Dialog open={createOpen ?? formOpen} title="新建交易" onClose={() => { setFormOpen(false); onCreateClose?.() }}>
+        {marketSelector}
         <form onSubmit={submit}>
           <div className="field">
             <label className="field__label" htmlFor="txn-type" aria-required="true">
@@ -306,7 +319,7 @@ export function Transactions() {
               value={form.transaction_type}
               onChange={(e) => setForm({ ...form, transaction_type: e.target.value })}
             >
-              {FORM_TYPES.map((t) => (
+              {FORM_TYPES.filter(t => isSecurityType(t.value)).map((t) => (
                 <option key={t.value} value={t.value}>
                   {t.label}
                 </option>

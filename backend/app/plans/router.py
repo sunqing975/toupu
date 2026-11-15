@@ -19,7 +19,7 @@ from app.core.errors import BusinessError
 from app.db.session import get_db
 from app.plans.proposal_service import revalidate
 from app.risk.models import InvestmentPlan, InvestmentPlanAction, OperationProposal
-from app.transactions.router import TransactionIn, create_transaction
+from app.transactions.router import TransactionIn, create_draft
 
 router = APIRouter(prefix="/api/v1/plans", tags=["plans"])
 
@@ -28,8 +28,8 @@ router = APIRouter(prefix="/api/v1/plans", tags=["plans"])
 
 
 class PlanIn(BaseModel):
-    name: str
-    description: str | None = None
+    name: str = Field(min_length=1, max_length=100, pattern=r"\S")
+    description: str | None = Field(default=None, max_length=200_000)
     target_amount: Decimal | None = Field(default=None, gt=0)
 
 
@@ -102,8 +102,7 @@ def create_plan(payload: PlanIn, db: Session = Depends(get_db)) -> InvestmentPla
         target_amount=payload.target_amount,
     )
     db.add(plan)
-    db.commit()
-    db.refresh(plan)
+    db.flush()
     record_audit(db, "plan.create", "investment_plan", str(plan.id), {"name": payload.name})
     db.commit()
     return plan
@@ -146,7 +145,9 @@ def list_proposals(
 
 
 def _get_proposal(db: Session, proposal_id: uuid.UUID) -> OperationProposal:
-    proposal = db.get(OperationProposal, proposal_id)
+    proposal = db.scalar(
+        select(OperationProposal).where(OperationProposal.id == proposal_id).with_for_update()
+    )
     if proposal is None:
         raise HTTPException(status_code=404, detail="提案不存在")
     return proposal
@@ -157,14 +158,15 @@ def get_proposal(proposal_id: uuid.UUID, db: Session = Depends(get_db)) -> Propo
     return _proposal_out(_get_proposal(db, proposal_id))
 
 
-@router.post("/proposals/{proposal_id}/approve", response_model=ProposalOut)
+@router.post("/proposals/{proposal_id}/create-draft", response_model=ProposalOut)
+@router.post("/proposals/{proposal_id}/approve", response_model=ProposalOut, deprecated=True)
 def approve_proposal(
     proposal_id: uuid.UUID, payload: ResolveIn | None = None, db: Session = Depends(get_db)
 ) -> ProposalOut:
     now = datetime.now(UTC)
     proposal = _get_proposal(db, proposal_id)
     if proposal.status != "PENDING":
-        raise BusinessError("该提案不能重复审批")
+        raise BusinessError("该建议已经处理，不能重复生成记账草稿")
     if now > proposal.expires_at:
         proposal.status = "EXPIRED"
         proposal.resolved_at = now
@@ -189,14 +191,13 @@ def approve_proposal(
         amount=amount,
         memo=(p.get("memo") or "Agent 提案审批通过生成的草稿"),
     )
-    detail = create_transaction(txn_in, db)
+    detail = create_draft(txn_in, db)
 
     proposal.status = "APPROVED"
     proposal.resolved_at = now
     proposal.resolved_by = "user"
     proposal.resolution_note = None if payload is None else payload.note
     proposal.resulting_transaction_id = detail.id
-    db.commit()
     record_audit(
         db,
         "proposal.approve",
@@ -220,7 +221,6 @@ def reject_proposal(
     proposal.resolved_at = now
     proposal.resolved_by = "user"
     proposal.resolution_note = None if payload is None else payload.note
-    db.commit()
     record_audit(
         db,
         "proposal.reject",

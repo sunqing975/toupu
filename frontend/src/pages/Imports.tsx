@@ -22,6 +22,7 @@ import {
   type ImportRecord,
   type ImportTemplate,
 } from "../api/imports"
+import { PlatformAssets } from "../components/PlatformAssets"
 import { Dialog } from "../components/Dialog"
 import { EmptyState } from "../components/EmptyState"
 import { Skeleton } from "../components/Skeleton"
@@ -217,6 +218,8 @@ export function Imports() {
           上传文件
         </button>
       </div>
+
+      <PlatformAssets />
 
       {/* 上传前说明：状态机 + 模板列，避免用户误以为上传即入账 */}
       <div className="banner" style={{ display: "block", marginBottom: "var(--space-4)" }}>

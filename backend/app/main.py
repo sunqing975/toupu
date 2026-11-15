@@ -15,14 +15,20 @@ from app.agent.mcp_router import router as agent_mcp_router
 from app.agent.mcp_server import mcp_server, mount_mcp
 from app.agent.models_router import router as agent_models_router
 from app.agent.router import router as agent_router
+from app.agent.runs import recover_interrupted
+from app.agent.runs import router as agent_runs_router
 from app.agent.skill_packages import router as skill_packages_router
 from app.core import errors
 from app.core.config import get_settings
+from app.funds.advisory import router as advisory_router
 from app.funds.router import router as funds_router
+from app.imports.platform_assets import router as platform_assets_router
 from app.imports.router import router as imports_router
 from app.instruments.router import router as instruments_router
 from app.ledger.router import router as ledger_router
 from app.market_data.router import router as market_data_router
+from app.performance.holdings_overview import router as holdings_overview_router
+from app.performance.overview import router as overview_router
 from app.performance.router import router as performance_router
 from app.plans.router import router as plans_router
 from app.positions.router import router as positions_router
@@ -43,6 +49,7 @@ def run_migrations() -> None:
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if get_settings().run_migrations_on_startup:
         run_migrations()
+    recover_interrupted()
     # FastAPI/Starlette 的 Mount 不会触发被挂载子应用（MCP）的 lifespan，
     # 因此显式运行 MCP 的 session_manager 生命周期。session_manager 是单例，
     # 同一进程内 lifespan 被多次进入（测试用 TestClient 多次开合）时不可重复
@@ -66,11 +73,15 @@ def create_app() -> FastAPI:
     app.include_router(instruments_router)
     app.include_router(transactions_router)
     app.include_router(funds_router)
+    app.include_router(advisory_router)
     app.include_router(imports_router)
+    app.include_router(platform_assets_router)
     app.include_router(ledger_router)
     app.include_router(positions_router)
     app.include_router(market_data_router)
     app.include_router(performance_router)
+    app.include_router(overview_router)
+    app.include_router(holdings_overview_router)
     app.include_router(snapshots_router)
     app.include_router(risk_router)
     app.include_router(agent_router)
@@ -79,6 +90,7 @@ def create_app() -> FastAPI:
     app.include_router(skill_packages_router)
     app.include_router(agent_conversations_router)
     app.include_router(agent_chat_router)
+    app.include_router(agent_runs_router)
     app.include_router(agent_mcp_router)
     app.include_router(plans_router)
 

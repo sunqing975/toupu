@@ -12,8 +12,8 @@ export const FUND_TYPES: FundTxnType[] = [
 ]
 
 export const FUND_TYPE_LABELS: Record<string, string> = {
-  FUND_SUBSCRIBE: "基金申购",
-  FUND_REDEEM: "基金赎回",
+  FUND_SUBSCRIBE: "买入",
+  FUND_REDEEM: "卖出",
   CASH_DIVIDEND: "现金分红",
   DIVIDEND_REINVEST: "红利再投资",
 }
@@ -37,6 +37,7 @@ export interface FundOrder {
   status: string
   confirmation_status: string | null
   business_date: string
+  confirmation_date: string | null
   currency: string
   total_amount: string | null
   memo: string | null
@@ -90,8 +91,10 @@ export interface FundConfirmationIn {
 const BASE = "/api/v1/funds/orders"
 
 export const fundsApi = {
-  list: (params?: { account_id?: string; transaction_type?: string; status_filter?: string }) => {
+  list: (params?: { account_id?: string; instrument_id?: string; transaction_type?: string; status_filter?: string; active_only?: boolean }) => {
     const q = new URLSearchParams()
+    if (params?.active_only) q.set("active_only", "true")
+    if (params?.instrument_id) q.set("instrument_id", params.instrument_id)
     if (params?.account_id) q.set("account_id", params.account_id)
     if (params?.transaction_type) q.set("transaction_type", params.transaction_type)
     if (params?.status_filter) q.set("status_filter", params.status_filter)

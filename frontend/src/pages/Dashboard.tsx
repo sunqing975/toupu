@@ -4,7 +4,9 @@ import { Wallet, ArrowLeftRight, PieChart, TrendingUp } from "lucide-react"
 import { accountsApi } from "../api/accounts"
 import { instrumentsApi } from "../api/instruments"
 import { TXN_TYPE_LABELS, fmtAmount, transactionsApi, type Txn } from "../api/transactions"
-import { marketApi, type SummaryOut } from "../api/market"
+import { api } from "../api/client"
+import { OverviewHoldings } from "../components/OverviewHoldings"
+type RecordedOverview = {recorded_assets: string | null; platform_holding_pnl: string | null; platform_cumulative_pnl: string | null; item_count: number; advisory_count: number; observation_dates: string[]; unrecorded_accounts: string[]; warning: string}
 import type { Instrument, InvestmentAccount } from "../api/types"
 import { EmptyState } from "../components/EmptyState"
 import { Skeleton } from "../components/Skeleton"
@@ -15,25 +17,25 @@ export function Dashboard() {
   const [accounts, setAccounts] = useState<InvestmentAccount[] | null>(null)
   const [instruments, setInstruments] = useState<Instrument[] | null>(null)
   const [recent, setRecent] = useState<Txn[] | null>(null)
-  const [summary, setSummary] = useState<SummaryOut | null>(null)
+  const [summary, setSummary] = useState<RecordedOverview | null>(null)
 
   useEffect(() => {
     accountsApi.list().then(setAccounts).catch(() => setAccounts([]))
     instrumentsApi.list().then(setInstruments).catch(() => setInstruments([]))
-    transactionsApi.list().then(setRecent).catch(() => setRecent([]))
-    marketApi.summary(new Date().toISOString().slice(0, 10)).then(setSummary).catch(() => setSummary(null))
+    transactionsApi.list({ investment_only: true }).then(setRecent).catch(() => setRecent([]))
+    api<RecordedOverview>("/api/v1/performance/overview").then(setSummary).catch(() => setSummary(null))
   }, [])
 
   const todoCount = (recent ?? []).filter((t) => t.status === "DRAFT" || t.status === "CONFIRMED").length
 
   const noAccounts = accounts !== null && accounts.length === 0
 
-  const pnl = summary ? Number(summary.realized_total) + Number(summary.unrealized_total) : null
+  const pnl = summary?.platform_holding_pnl != null ? Number(summary.platform_holding_pnl) : null
   const pnlClass = pnl === null ? "metric-card__value num" : pnl >= 0 ? "metric-card__value num num--up" : "metric-card__value num num--down"
 
-  // 资产构成条：现金 / 持仓市值 的相对占比（总资产为 0 时不渲染）
-  const cash = summary ? Number(summary.cash_total) : 0
-  const market = summary ? Number(summary.market_value) : 0
+  // 资产构成条：现金 / 平台累计收益 的相对占比（总资产为 0 时不渲染）
+  const cash = 0
+  const market = summary?.recorded_assets ? Number(summary.recorded_assets) : 0
   const compositionTotal = cash + market
   const cashPct = compositionTotal > 0 ? Math.round((cash / compositionTotal) * 100) : 0
   const marketPct = compositionTotal > 0 ? 100 - cashPct : 0
@@ -63,15 +65,16 @@ export function Dashboard() {
         </div>
       ) : (
         <>
+          {summary && <div className="banner" role="status">{summary.warning}{summary.unrecorded_accounts.length > 0 && ` 尚未录入：${summary.unrecorded_accounts.join("、")}（不是零资产）。`}</div>}
           <div className="overview">
             <section className="hero-card" aria-label="总资产">
               <div className="hero-card__glow" aria-hidden />
               <div className="hero-card__top">
-                <span className="hero-card__eyebrow">净资产 · NET ASSET VALUE</span>
-                <span className="hero-card__badge">账本口径</span>
+                <span className="hero-card__eyebrow">已录资产 · RECORDED ASSETS</span>
+                <span className="hero-card__badge">平台快照口径</span>
               </div>
               <div className="hero-card__value num">
-                {summary ? fmtAmount(summary.total_assets) : "—"}
+                {summary ? fmtAmount(summary.recorded_assets) : "—"}
               </div>
               <div className="hero-card__composition">
                 <div className="hero-card__bar" aria-hidden>
@@ -86,7 +89,7 @@ export function Dashboard() {
                 </div>
                 <div className="hero-card__legend">
                   <span>
-                    <i className="hero-card__dot hero-card__dot--cash" aria-hidden /> 现金 {cashPct}%
+                    <i className="hero-card__dot hero-card__dot--cash" aria-hidden /> 现金未纳入此汇总
                   </span>
                   <span>
                     <i className="hero-card__dot hero-card__dot--market" aria-hidden /> 持仓 {marketPct}%
@@ -94,39 +97,38 @@ export function Dashboard() {
                 </div>
               </div>
               <p className="hero-card__foot">
-                {summary?.data_quality && summary.data_quality !== "COMPLETE"
-                  ? "部分持仓缺少报价，市值为估值"
-                  : "现金与已估值持仓之和，按复式账本派生"}
+                {summary ? `数据日期：${summary.observation_dates.join("、")} · 非实时市值` : "最近已录平台资产，不以缺失报价作零估值"}
               </p>
             </section>
 
             <div className="overview__side">
-              <section className="metric-card" aria-label="现金合计">
-                <div className="metric-card__label">现金合计</div>
+              <section className="metric-card" aria-label="投顾组合">
+                <div className="metric-card__label">投顾组合</div>
                 <div className="metric-card__value num">
-                  {summary ? fmtAmount(summary.cash_total) : "—"}
+                  {summary ? String(summary.advisory_count) : "—"}
                 </div>
-                <div className="metric-card__hint">各账户现金科目合计</div>
+                <div className="metric-card__hint">已包含在左侧已录资产中，不重复相加</div>
               </section>
-              <section className="metric-card" aria-label="持仓市值">
-                <div className="metric-card__label">持仓市值</div>
+              <section className="metric-card" aria-label="平台累计收益">
+                <div className="metric-card__label">平台累计收益</div>
                 <div className="metric-card__value num">
-                  {summary ? fmtAmount(summary.market_value) : "—"}
+                  {summary ? fmtAmount(summary.platform_cumulative_pnl) : "—"}
                 </div>
                 <div className="metric-card__hint">
-                  {summary ? `持仓 ${summary.valued_positions}/${summary.total_positions} 已估值` : "持仓构成待行情"}
+                  {summary ? `已录 ${summary.item_count} 项资产（含 ${summary.advisory_count} 个组合）` : "资产数据未加载"}
                 </div>
               </section>
-              <section className="metric-card" aria-label="累计盈亏">
+              <section className="metric-card" aria-label="平台持有收益">
                 <div className="metric-card__label">
-                  累计盈亏 <TrendingUp size={14} aria-hidden />
+                  平台持有收益 <TrendingUp size={14} aria-hidden />
                 </div>
                 <div className={pnlClass}>{pnl !== null ? fmtAmount(pnl.toString()) : "—"}</div>
-                <div className="metric-card__hint">已实现 + 未实现</div>
+                <div className="metric-card__hint">平台展示口径，不混入账本已实现收益</div>
               </section>
             </div>
           </div>
 
+          <OverviewHoldings />
           <div className="grid-2" style={{ marginTop: "var(--space-5)" }}>
             <div className="card">
               <div className="card__title">
@@ -179,7 +181,7 @@ export function Dashboard() {
                   </li>
                   <li style={{ padding: "var(--space-2) 0", color: "var(--color-muted-foreground)" }}>
                     <PieChart size={14} aria-hidden style={{ verticalAlign: "-2px", marginRight: 6 }} />
-                    {summary ? `持仓 ${summary.valued_positions}/${summary.total_positions} 已估值` : "持仓构成待行情"}
+                    {summary ? `已录 ${summary.item_count} 项资产（含 ${summary.advisory_count} 个组合）` : "资产数据未加载"}
                   </li>
                 </ul>
               )}

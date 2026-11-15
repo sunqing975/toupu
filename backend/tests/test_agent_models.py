@@ -7,9 +7,11 @@
   不直接写账本；无可用模型时返回 400「尚未配置可用的模型」。
 """
 
+import json
+import uuid
+
 from fastapi.testclient import TestClient
 
-from app.agent import llm
 from app.db.session import SessionLocal
 from app.main import app
 
@@ -28,7 +30,7 @@ def _create_model(name="模型A", display_name=None, is_default=False):
         payload["display_name"] = display_name
     resp = client.post("/api/v1/agent/models", json=payload)
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return _chat_body(resp)
 
 
 def test_model_create_and_api_key_not_echoed():
@@ -126,7 +128,6 @@ def test_model_delete():
 
 
 def test_model_404():
-    import uuid
 
     resp = client.get(f"/api/v1/agent/models/{uuid.uuid4()}")
     assert resp.status_code == 404, resp.text
@@ -150,21 +151,30 @@ def test_chat_returns_answer_from_llm(monkeypatch):
     captured = {}
 
     def fake_chat(
-        db, messages, tool_schemas, tool_executor, *, model_id=None, temperature=0.3, max_rounds=6
+        db,
+        messages,
+        tool_schemas,
+        tool_executor,
+        *,
+        model_id=None,
+        temperature=0.3,
+        max_rounds=6,
+        **kwargs,
     ):
         captured["messages"] = messages
         captured["model_id"] = model_id
         captured["tool_schemas"] = tool_schemas
-        return "根据只读快照，你的组合整体风险可控。"
+        yield {"type": "content", "text": "根据只读快照，你的组合整体风险可控。"}
+        yield {"type": "complete"}
 
-    monkeypatch.setattr(llm, "chat_with_tools", fake_chat)
+    monkeypatch.setattr("app.agent.chat_router.stream_with_tools", fake_chat)
 
     resp = client.post(
         "/api/v1/agent/chat",
         json={"question": "给我一个简要分析"},
     )
     assert resp.status_code == 200, resp.text
-    body = resp.json()
+    body = _chat_body(resp)
     assert body["answer"] == "根据只读快照，你的组合整体风险可控。"
     assert body["agent_name"]
     # 工具循环必须启用：模型被请求调用（首轮含 tool_calls）或最终文本；
@@ -180,3 +190,16 @@ def test_chat_unknown_agent_404():
         json={"question": "x", "agent_id": "00000000-0000-0000-0000-000000000099"},
     )
     assert resp.status_code == 404, resp.text
+
+
+def _chat_body(response):
+    if "text/event-stream" not in response.headers.get("content-type", ""):
+        return response.json()
+    events = [
+        json.loads(line[6:]) for line in response.text.splitlines() if line.startswith("data: ")
+    ]
+    assert not any(e["type"] == "error" for e in events), events
+    return {
+        **next(e for e in events if e["type"] == "meta"),
+        "answer": "".join(e.get("text", "") for e in events if e["type"] == "content"),
+    }

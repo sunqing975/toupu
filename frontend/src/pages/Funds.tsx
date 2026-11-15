@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { useSearchParams } from "react-router-dom"
 import {
   BadgeCheck,
   Ban,
@@ -84,7 +85,14 @@ const TYPE_HINTS: Record<FundTxnType, string> = {
   DIVIDEND_REINVEST: "红利再投资：确认时按确认净值与份额增加持仓，不重复记现金。申请阶段无需填金额。",
 }
 
-export function Funds() {
+export function Funds({ embedded = false, dialogOnly = false, createRequest = 0, detailId, confirmId, onChanged, createOpen, onCreateClose, marketSelector }: { embedded?: boolean; dialogOnly?: boolean; createRequest?: number; detailId?: string; confirmId?: string; onChanged?: () => void; createOpen?: boolean; onCreateClose?: () => void; marketSelector?: import("react").ReactNode }) {
+  const [params] = useSearchParams()
+  const selectedOrder = params.get("order")
+  useEffect(() => {
+    let active = true
+    if (selectedOrder) fundsApi.get(selectedOrder).then(d => { if (active) setDetail(d) }).catch(e => { if (active) toast("error", (e as Error).message) })
+    return () => { active = false }
+  }, [selectedOrder])
   const toast = useToast()
   const [orders, setOrders] = useState<FundOrder[] | null>(null)
   const [accounts, setAccounts] = useState<InvestmentAccount[]>([])
@@ -102,6 +110,9 @@ export function Funds() {
   const [failTarget, setFailTarget] = useState<FundOrder | null>(null)
   const [reversing, setReversing] = useState<FundOrder | null>(null)
   const [detail, setDetail] = useState<FundOrderDetail | null>(null)
+  useEffect(() => { if (createRequest) { setForm({ ...EMPTY_FORM, business_date: today() }); setFormOpen(true) } }, [createRequest])
+  useEffect(() => { if (detailId) fundsApi.get(detailId).then(setDetail).catch(e => toast("error", (e as Error).message)) }, [detailId])
+  useEffect(() => { if (confirmId) fundsApi.get(confirmId).then(d => { setConfirmForm(emptyConfirm()); setConfirmTarget(d) }).catch(e => toast("error", (e as Error).message)) }, [confirmId])
 
   const accountName = (id: string) =>
     accounts.find((a) => a.id === id)?.name ?? id.slice(0, 8)
@@ -162,7 +173,9 @@ export function Funds() {
         t === "CASH_DIVIDEND" ? "现金分红已记录，可直接入账" : "基金申请草稿已保存，请录入确认信息",
       )
       setFormOpen(false)
+      onCreateClose?.()
       load()
+      onChanged?.()
     } catch (err) {
       toast("error", (err as Error).message)
     } finally {
@@ -187,6 +200,7 @@ export function Funds() {
       toast("success", "确认信息已录入，可入账")
       setConfirmTarget(null)
       load()
+      onChanged?.()
     } catch (err) {
       toast("error", (err as Error).message)
     } finally {
@@ -213,6 +227,7 @@ export function Funds() {
       await transactionsApi[action](o.id)
       toast("success", action === "post" ? "已入账" : "申请已取消")
       load()
+      onChanged?.()
     } catch (err) {
       toast("error", (err as Error).message)
     } finally {
@@ -228,6 +243,7 @@ export function Funds() {
       toast("success", "申请已标记失败")
       setFailTarget(null)
       load()
+      onChanged?.()
     } catch (err) {
       toast("error", (err as Error).message)
       setFailTarget(null)
@@ -244,6 +260,7 @@ export function Funds() {
       toast("success", "已冲正，原记录保留")
       setReversing(null)
       load()
+      onChanged?.()
     } catch (err) {
       toast("error", (err as Error).message)
       setReversing(null)
@@ -301,11 +318,12 @@ export function Funds() {
   const confirmDisabled = busy || !confirmable || (conservation !== null && !conservation.valid)
 
   return (
-    <div className="page">
+    <div className={embedded ? "stack" : "page"}>
+      {!dialogOnly && <>
       <div className="page__head">
         <div>
           <p className="page__sub">
-            场外基金：申购 / 赎回需先申请、再录入确认净值与份额；现金分红与红利再投资见各处说明
+            记录基金买入、卖出和分红；未确认显示待确认，确认后补日期、净值与实际份额，无需记录入金出金
           </p>
         </div>
         <button className="btn btn--primary" onClick={openForm}>
@@ -371,7 +389,7 @@ export function Funds() {
           <table className="table">
             <thead>
               <tr>
-                <th>日期</th>
+                <th>记录日期</th><th>确认日期</th>
                 <th>类型</th>
                 <th>账户 / 品种</th>
                 <th>渠道</th>
@@ -383,7 +401,7 @@ export function Funds() {
             <tbody>
               {orders.map((o) => (
                 <tr key={o.id}>
-                  <td className="num">{o.business_date}</td>
+                  <td className="num">{o.business_date}</td><td className="num">{o.confirmation_date ?? (o.confirmation_status === "PENDING" ? "待确认" : "—")}</td>
                   <td>{FUND_TYPE_LABELS[o.transaction_type] ?? o.transaction_type}</td>
                   <td>
                     {accountName(o.account_id)}
@@ -422,8 +440,10 @@ export function Funds() {
         )}
       </div>
 
+      </>}
       {/* 新建申请 */}
-      <Dialog open={formOpen} title="新建基金申请" onClose={() => setFormOpen(false)}>
+      <Dialog open={createOpen ?? formOpen} title="新建交易" onClose={() => { setFormOpen(false); onCreateClose?.() }}>
+        {marketSelector}
         <form onSubmit={submit}>
           <div className="field">
             <label className="field__label" htmlFor="fund-type" aria-required="true">

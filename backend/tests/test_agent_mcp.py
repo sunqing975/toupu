@@ -1,5 +1,6 @@
 # M7 Phase 4：外部 MCP 服务挂载管理 + 会话技能（docs/agent-framework.md §外部 MCP 挂载）。
 # 覆盖：CRUD、transport 校验、test 连接、外部知识技能工具、fetch 容错。
+import json
 import uuid
 
 from fastapi.testclient import TestClient
@@ -8,6 +9,61 @@ from app.agent import mcp_client as mcp_client_mod
 from app.main import app
 
 client = TestClient(app)
+
+
+def test_json_import_is_atomic_disabled_and_validated():
+    name = "json-" + _sid()
+    entries = {
+        name: {"command": "never-launch", "args": ["--test"], "env": {"A": "B"}},
+        name + "http": {"url": "https://example.test/mcp", "type": "streamable-http"},
+    }
+    response = client.post(
+        "/api/v1/agent/mcp-servers/import", json={"json_text": json.dumps({"mcpServers": entries})}
+    )
+    assert response.status_code == 201, response.text
+    assert all(not row["enabled"] for row in response.json())
+    assert (
+        client.post(
+            "/api/v1/agent/mcp-servers/import",
+            json={"json_text": json.dumps({"mcpServers": entries})},
+        ).status_code
+        == 409
+    )
+    bad = {name + "new": {"command": "never"}, name + "bad": {"command": "never", "args": "bad"}}
+    assert (
+        client.post(
+            "/api/v1/agent/mcp-servers/import", json={"json_text": json.dumps({"mcpServers": bad})}
+        ).status_code
+        == 422
+    )
+    assert not any(
+        row["name"] == name + "new" for row in client.get("/api/v1/agent/mcp-servers").json()
+    )
+    for row in response.json():
+        client.delete("/api/v1/agent/mcp-servers/" + row["id"])
+
+
+def test_external_call_requires_live_scope(monkeypatch):
+    from app.db.session import SessionLocal
+
+    srv = _create("scope-" + _sid(), url="https://example.test/mcp")
+    calls = []
+
+    async def gather(*args):
+        calls.append(args)
+        return "ok"
+
+    monkeypatch.setattr(mcp_client_mod, "_gather_one", gather)
+    args = {"server_id": srv["id"], "tool": "write", "arguments": {}}
+    with SessionLocal() as db:
+        assert "未挂载" in mcp_client_mod.external_operation(db, [], args, call=True)
+        assert calls == []
+        assert mcp_client_mod.external_operation(db, [srv["id"]], args, call=True) == "ok"
+        assert len(calls) == 1
+    client.patch("/api/v1/agent/mcp-servers/" + srv["id"], json={"enabled": False})
+    with SessionLocal() as db:
+        assert "未启用" in mcp_client_mod.external_operation(db, [srv["id"]], args, call=True)
+    client.delete("/api/v1/agent/mcp-servers/" + srv["id"])
 
 
 def _sid() -> str:

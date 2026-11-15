@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
 import {
   Bot,
   Check,
@@ -19,8 +21,9 @@ import {
   type AgentDefinitionIn,
   type AgentSkill,
 } from "../api/agents"
+import { mcpServersApi, type McpServer } from "../api/mcpServers"
 import { modelsApi, type AgentModel } from "../api/models"
-import { chatApi } from "../api/chat"
+import { chatSession, type ChatMessage } from "../api/chatSession"
 import { conversationsApi, type Conversation, type ConversationMessage } from "../api/conversations"
 import { Dialog } from "../components/Dialog"
 import { Skeleton } from "../components/Skeleton"
@@ -29,13 +32,6 @@ import { useToast } from "../components/Toast"
 // 用户反馈 (m05823)：正经的对话框 = 左侧历史会话 + 右侧消息区（顶部标题栏/模型选择 + 底部输入）。
 // 历史会话存库、可回看续聊；模型可在对话框顶部直接切换。
 
-interface ChatMessage {
-  role: "user" | "assistant"
-  content: string
-  agentName?: string | null
-  modelName?: string | null
-  createdAt: string
-}
 
 const SUGGESTIONS = [
   "我当前组合的整体风险如何？",
@@ -59,6 +55,8 @@ interface AgentForm {
   system_prompt: string
   model_id: string
   enabled_skill_keys: string[]
+  skill_package_keys: string[]
+  mcp_server_ids: string[]
 }
 
 const EMPTY_FORM: AgentForm = {
@@ -70,6 +68,8 @@ const EMPTY_FORM: AgentForm = {
   system_prompt: "",
   model_id: "",
   enabled_skill_keys: [],
+  skill_package_keys: [],
+  mcp_server_ids: [],
 }
 
 function groupSkills(skills: AgentSkill[]): Record<string, AgentSkill[]> {
@@ -82,22 +82,24 @@ function groupSkills(skills: AgentSkill[]): Record<string, AgentSkill[]> {
 
 export function Agent() {
   const toast = useToast()
-
   // 数据
   const [agents, setAgents] = useState<AgentDefinition[] | null>(null)
   const [skills, setSkills] = useState<AgentSkill[] | null>(null)
+  const [servers, setServers] = useState<McpServer[]>([])
   const [models, setModels] = useState<AgentModel[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+
 
   // 历史会话
   const [conversations, setConversations] = useState<Conversation[] | null>(null)
   const [showArchived, setShowArchived] = useState(false)
-  const [activeConvId, setActiveConvId] = useState<string | null>(null)
-  const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [typing, setTyping] = useState(false)
-  const [question, setQuestion] = useState("")
-  const [modelId, setModelId] = useState<string>("") // 对话框顶部临时换模型（"" = 跟随 Agent/默认）
+  const { activeConvId, messages, typing, question, modelId, selectedId } = useSyncExternalStore(
+    chatSession.subscribe, chatSession.getSnapshot)
+  const setActiveConvId = (value: string | null) => chatSession.set("activeConvId", value)
+  const setMessages = (value: ChatMessage[]) => chatSession.set("messages", value)
+  const setQuestion = (value: string) => chatSession.set("question", value)
+  const setModelId = (value: string) => chatSession.set("modelId", value)
+  const setSelectedId = (value: string | null | ((old: string | null) => string | null)) => chatSession.set("selectedId", value)
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
 
   // 编辑器
@@ -109,8 +111,9 @@ export function Agent() {
   const loadAgents = () => {
     setAgents(null)
     setLoadError(null)
-    Promise.all([agentsApi.list(), agentsApi.skills(), modelsApi.list()])
-      .then(([ags, sks, mds]) => {
+    Promise.all([agentsApi.list(), agentsApi.skills(), modelsApi.list(), mcpServersApi.list()])
+      .then(([ags, sks, mds, srvs]) => {
+        setServers(srvs)
         setAgents(ags)
         setSkills(sks)
         setModels(mds)
@@ -132,13 +135,16 @@ export function Agent() {
 
   useEffect(() => {
     loadConversations()
-  }, [showArchived])
+  }, [showArchived, typing])
 
   const openConversation = async (id: string) => {
+    if (chatSession.getSnapshot().typing) return
+    if (activeConvId === id && messages.length) return
     setActiveConvId(id)
     setMessages([])
     try {
       const detail = await conversationsApi.get(id)
+      if (chatSession.getSnapshot().activeConvId !== id || chatSession.getSnapshot().typing) return
       setMessages(
         detail.messages.map((m: ConversationMessage) => ({
           role: m.role,
@@ -154,6 +160,7 @@ export function Agent() {
   }
 
   const newConversation = () => {
+    if (chatSession.getSnapshot().typing) return
     setActiveConvId(null)
     setMessages([])
     setQuestion("")
@@ -180,7 +187,7 @@ export function Agent() {
     [agents, selectedId],
   )
 
-  const skillsByCat = useMemo(() => groupSkills(skills ?? []), [skills])
+  const skillsByCat = useMemo(() => groupSkills((skills ?? []).filter(s => s.category !== "instruction" && s.category !== "knowledge")), [skills])
 
   const openCreate = () => {
     setEditing(null)
@@ -205,6 +212,8 @@ export function Agent() {
       system_prompt: a.system_prompt,
       model_id: a.model_id ?? "",
       enabled_skill_keys: [...a.enabled_skill_keys],
+      skill_package_keys: [...(a.skill_package_keys ?? [])],
+      mcp_server_ids: [...a.mcp_server_ids],
     })
     setEditorOpen(true)
   }
@@ -241,7 +250,8 @@ export function Agent() {
         system_prompt: form.system_prompt,
         model_id: form.model_id || null,
         enabled_skill_keys: form.enabled_skill_keys,
-        mcp_server_ids: editing ? editing.mcp_server_ids : [],
+        mcp_server_ids: form.mcp_server_ids,
+        skill_package_keys: form.skill_package_keys,
       }
       if (editing) {
         const { key: _key, ...patch } = payload
@@ -287,35 +297,8 @@ export function Agent() {
       return
     }
     const q = question.trim()
-    setMessages((m) => [...m, { role: "user", content: q, createdAt: "现在" }])
-    setQuestion("")
-    setTyping(true)
-    try {
-      const res = await chatApi.ask({
-        question: q,
-        agent_id: selected.id,
-        conversation_id: activeConvId,
-        model_id: modelId || null,
-      })
-      setMessages((m) => [
-        ...m,
-        {
-          role: "assistant",
-          content: res.answer,
-          agentName: res.agent_name,
-          modelName: res.model_name,
-          createdAt: "现在",
-        },
-      ])
-      if (activeConvId !== res.conversation_id) {
-        setActiveConvId(res.conversation_id)
-      }
-      loadConversations()
-    } catch (e) {
-      toast("error", e instanceof Error ? e.message : String(e))
-    } finally {
-      setTyping(false)
-    }
+    await chatSession.start({ question: q, agent_id: selected.id,
+      conversation_id: activeConvId, model_id: modelId || null })
   }
 
   return (
@@ -467,7 +450,7 @@ export function Agent() {
                 <Bot size={40} aria-hidden />
                 <div>
                   <p style={{ color: "var(--color-foreground)", fontWeight: 600 }}>开始一次分析对话</p>
-                  <p className="page__sub">提出关于持仓、收益、风险或投资计划的问题。历史会自动保存。</p>
+                  <p className="page__sub">选择助手，按需提问或处理程序内的操作。对话历史会自动保存。</p>
                 </div>
                 <div className="chips">
                   {SUGGESTIONS.map((s) => (
@@ -486,7 +469,15 @@ export function Agent() {
                     </div>
                     <div className="msg__body">
                       <div className={`msg__bubble ${m.role === "user" ? "msg__bubble--user" : "msg__bubble--bot"}`}>
-                        {m.content}
+                        {m.reasoning && <details className="chat-reasoning" open={typing && i === messages.length - 1}>
+                          <summary>思考 · 模型提供</summary>
+                          <div className="markdown"><ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml>{m.reasoning}</ReactMarkdown></div>
+                        </details>}
+                        {!!m.tools?.length && <div className="chat-tools" aria-label="工具调用">
+                          {m.tools.map(t => <details key={t.id}><summary>{t.done ? "✓" : "◌"} <code>{t.name}</code> · {t.done ? "已返回" : "调用中"}</summary><pre>参数：{t.arguments}</pre>{t.approvalId && t.approved === undefined && !t.done && <div><p>该操作需要你的确认。请核对工具名称和上述参数；确认后由服务端执行，不代表资金交易入账。</p><button type="button" onClick={() => void chatSession.decide(t.approvalId!, true).catch(e => alert(String(e)))}>确认执行</button> <button type="button" onClick={() => void chatSession.decide(t.approvalId!, false).catch(e => alert(String(e)))}>拒绝</button></div>}{t.approved !== undefined && <p>{t.approved ? "用户已确认" : "用户已拒绝"}</p>}{t.result && <pre>返回（最多 12000 字符）：{t.result}</pre>}</details>)}
+                        </div>}
+                        <div className="markdown"><ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml>{m.content}</ReactMarkdown></div>
+                        {m.status && <p className="muted" role="status">{m.status}</p>}
                       </div>
                       {m.role === "assistant" && (
                         <details className="evidence">
@@ -495,7 +486,7 @@ export function Agent() {
                             <span>助手：{m.agentName || "—"}</span>
                             <span>模型：{m.modelName || "默认模型"}</span>
                             <span>数据范围：由该助手启用的只读/分析工具按需拉取</span>
-                            <span>说明：会话未改动账本；可执行操作需你在网页端确认。</span>
+                            <span>说明：建议仅供参考，计划和草稿不改变持仓；实际交易由你自行操作后核实记账。</span>
                           </div>
                         </details>
                       )}
@@ -503,7 +494,7 @@ export function Agent() {
                     </div>
                   </div>
                 ))}
-                {typing && (
+                {typing && !messages.length && (
                   <div className="msg msg--bot">
                     <div className="msg__avatar msg__avatar--bot"><Bot size={16} aria-hidden /></div>
                     <div className="msg__body">
@@ -520,6 +511,7 @@ export function Agent() {
 
           {/* 输入区 */}
           <div className="chat__composer">
+            {typing && <button className="btn btn--secondary" onClick={() => chatSession.stop()}>停止生成</button>}
             <textarea
               className="input"
               rows={3}
@@ -598,7 +590,7 @@ export function Agent() {
           </div>
 
           <div className="field">
-            <span className="field__label">可用工具（{form.enabled_skill_keys.length} 项已启用）</span>
+            <span className="field__label">内置工具（{(skills ?? []).filter(s => s.category !== "instruction" && s.category !== "knowledge" && form.enabled_skill_keys.includes(s.key)).length} 项已启用）</span>
             {skills === null ? (
               <Skeleton rows={3} />
             ) : (
@@ -629,6 +621,35 @@ export function Agent() {
             )}
           </div>
 
+          {([
+            { field: "skill_package_keys" as const, label: "技能目录", items: (skills ?? []).filter(s => s.category === "instruction").map(s => ({ key: s.key, name: s.name, enabled: s.enabled })) },
+          ]).map(({ field, label, items }) => (
+            <div className="field" key={field}>
+              <span className="field__label">{label}（{form[field].length} 项已挂载）</span>
+              <div className="skill-group__items">
+                {items.map(item => <label key={item.key} className="skill-item">
+                  <input type="checkbox" checked={form[field].includes(item.key)} onChange={() => setForm(f => ({ ...f, [field]: f[field].includes(item.key) ? f[field].filter(k => k !== item.key) : [...f[field], item.key] }))} />
+                  {item.name}{!item.enabled && "（全局已停用）"}
+                </label>)}
+                {!items.length && <span className="text-muted">尚未配置，请到设置中添加。</span>}
+              </div>
+            </div>
+          ))}
+          <fieldset className="field" style={{ border: "none", padding: 0, margin: 0 }}>
+            <legend className="field__label">MCP（{form.mcp_server_ids.length} 项已挂载）</legend>
+            <p className="text-muted">选择此 Agent 可访问的 MCP 服务。资源读取与工具调用统一由 MCP 提供，服务在设置中管理。</p>
+            <div className="skill-group__items">
+              {servers.map(server => <label key={server.id} className="skill-item">
+                <input type="checkbox" checked={form.mcp_server_ids.includes(server.id)} onChange={() => setForm(f => ({ ...f, mcp_server_ids: f.mcp_server_ids.includes(server.id) ? f.mcp_server_ids.filter(id => id !== server.id) : [...f.mcp_server_ids, server.id] }))} />
+                {server.name}{!server.enabled && "（全局已停用）"}
+              </label>)}
+              {!servers.length && <span className="text-muted">尚未配置 MCP 服务，请到设置 → 外部 MCP 中添加。</span>}
+            </div>
+            {(skills ?? []).filter(s => s.category === "knowledge").map(skill => <label key={skill.key} className="skill-item" title={skill.description}>
+              <input type="checkbox" checked={form.enabled_skill_keys.includes(skill.key)} onChange={() => toggleSkill(skill.key)} />
+              允许读取 MCP 资源{!skill.enabled && "（全局已停用）"}
+            </label>)}
+          </fieldset>
           <div className="dialog__foot">
             <button className="btn btn--ghost" onClick={() => setEditorOpen(false)}><X size={14} aria-hidden /> 取消</button>
             <button className="btn btn--primary" onClick={saveAgent} disabled={busy}>{busy ? "保存中…" : "保存"}</button>

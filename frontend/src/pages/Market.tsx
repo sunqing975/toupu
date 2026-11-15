@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { api } from "../api/client"
 import {
   Activity,
   BarChart3,
@@ -26,7 +27,7 @@ import {
   type ValuationOut,
 } from "../api/market"
 import { instrumentsApi } from "../api/instruments"
-import { fmtAmount } from "../api/transactions"
+import { fmtMoney, fmtNav, fmtQuantity } from "../api/marketFormat"
 import type { Instrument } from "../api/types"
 import { Dialog } from "../components/Dialog"
 import { EmptyState } from "../components/EmptyState"
@@ -68,7 +69,7 @@ function MetricCard({
   icon: React.ReactNode
 }) {
   const ok = metric.status === "OK" && metric.value !== null
-  const pct = ok ? (Number(metric.value) * 100).toLocaleString("zh-CN", { maximumFractionDigits: 4 }) : null
+  const pct = ok ? (Number(metric.value) * 100).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : null
   return (
     <div className="card">
       <div className="card__title" style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -109,6 +110,17 @@ export function Market() {
   const [staleDays, setStaleDays] = useState(7)
   const [tab, setTab] = useState<Tab>("valuation")
   const [busy, setBusy] = useState(false)
+  const [syncingNav, setSyncingNav] = useState(false)
+  const syncNavs = async () => {
+    setSyncingNav(true)
+    try {
+      const result = await api<{inserted: number; funds: {code: string; nav_date: string}[]}>("/api/v1/market/sync-fund-navs", {method: "POST"})
+      toast("success", `已同步 ${result.funds.length} 只基金，新增 ${result.inserted} 条净值；日期以各基金公布日为准`)
+      loadDerived()
+      marketApi.navs().then(setNavs)
+    } catch (e) { toast("error", (e as Error).message) }
+    finally { setSyncingNav(false) }
+  }
 
   const [valuation, setValuation] = useState<ValuationOut | null>(null)
   const [summary, setSummary] = useState<SummaryOut | null>(null)
@@ -281,6 +293,7 @@ export function Market() {
             <option value={3}>3 天过期</option>
             <option value={30}>30 天过期</option>
           </select>
+          <button className="btn btn--primary" disabled={syncingNav} onClick={syncNavs}>{syncingNav ? "同步净值中…" : "同步持仓基金净值"}</button>
           <button className="btn btn--secondary" onClick={loadDerived} aria-label="刷新">
             <RefreshCw size={15} aria-hidden />
           </button>
@@ -289,6 +302,7 @@ export function Market() {
 
       {loadError && <div className="banner banner--error">{loadError}</div>}
 
+      <div className="banner" role="status">本页是正式账本＋净值的估值工作台，不是首页的支付宝快照汇总；帮你投在持仓页独立展示。缺少净值时不能计算市值和总资产，也不能把已实现收益当作总收益。</div>
       {/* 顶部派生汇总 */}
       {summary === null ? (
         <div style={{ display: "grid", gap: "var(--space-3)" }}>
@@ -297,17 +311,17 @@ export function Market() {
         </div>
       ) : (
         <div className="stat-grid" style={{ gridTemplateColumns: "repeat(4, 1fr)", marginBottom: "var(--space-4)" }}>
-          <StatCard title="现金合计" value={fmtAmount(summary.cash_total)} hint="CASH 科目借贷净额" />
-          <StatCard title="持仓市值" value={fmtAmount(summary.market_value)} hint="仅已估值持仓" />
-          <StatCard title="总资产" value={fmtAmount(summary.total_assets)} hint="现金 + 持仓市值" />
-          <StatCard title="账面成本" value={fmtAmount(summary.book_cost_total)} hint="SECURITY 科目双口径校验" />
+          <StatCard title="现金合计" value={fmtMoney(summary.cash_total)} hint="CASH 科目借贷净额" />
+          <StatCard title="普通持仓市值" value={summary.data_quality === "COMPLETE" ? fmtMoney(summary.market_value) : "无法完整计算"} hint="需要全部普通持仓的正式净值；不含帮你投" />
+          <StatCard title="账本资产估值" value={summary.data_quality === "COMPLETE" ? fmtMoney(summary.total_assets) : "无法完整计算"} hint="仅正式账本范围，不含平台组合；缺失行情不是零资产" />
+          <StatCard title="账面成本" value={fmtMoney(summary.book_cost_total)} hint="SECURITY 科目双口径校验" />
         </div>
       )}
       {summary && (
         <div className="stat-grid" style={{ gridTemplateColumns: "repeat(4, 1fr)", marginBottom: "var(--space-5)" }}>
-          <StatCard title="已实现盈亏" value={fmtAmount(summary.realized_total)} />
-          <StatCard title="未实现盈亏" value={fmtAmount(summary.unrealized_total)} hint="市值 − 账面成本" />
-          <StatCard title="分红收入" value={fmtAmount(summary.dividend_income)} />
+          <StatCard title="账本已实现盈亏" value={fmtMoney(summary.realized_total)} hint="仅历史赎回/卖出结果，不是累计总收益；转换前历史未完整重建" />
+          <StatCard title="账本未实现盈亏" value={summary.data_quality === "COMPLETE" ? fmtMoney(summary.unrealized_total) : "无法完整计算"} hint="需要正式净值，不用平台截图冒充报价" />
+          <StatCard title="分红收入" value={fmtMoney(summary.dividend_income)} />
           <StatCard
             title="报价覆盖"
             value={`${(Number(summary.coverage) * 100).toFixed(2)}%`}
@@ -389,11 +403,11 @@ export function Market() {
                         </div>
                       )}
                     </td>
-                    <td className="cell--num num">{fmtAmount(r.quantity)}</td>
-                    <td className="cell--num num">{fmtAmount(r.book_cost)}</td>
-                    <td className="cell--num num">{fmtAmount(r.quote.price)}</td>
-                    <td className="cell--num num">{fmtAmount(r.market_value)}</td>
-                    <td className="cell--num num">{fmtAmount(r.unrealized)}</td>
+                    <td className="cell--num num">{fmtQuantity(r.quantity)}</td>
+                    <td className="cell--num num">{fmtMoney(r.book_cost)}</td>
+                    <td className="cell--num num">{fmtNav(r.quote.price)}</td>
+                    <td className="cell--num num">{fmtMoney(r.market_value)}</td>
+                    <td className="cell--num num">{fmtMoney(r.unrealized)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -403,10 +417,10 @@ export function Market() {
                     合计（仅已估值持仓计入）
                   </td>
                   <td className="cell--num num" style={{ fontWeight: 600 }}>
-                    {fmtAmount(valuation.market_value)}
+                    {valuation.valued_positions > 0 ? fmtMoney(valuation.market_value) : "—（缺少净值）"}
                   </td>
                   <td className="cell--num num" style={{ fontWeight: 600 }}>
-                    {fmtAmount(valuation.unrealized_total)}
+                    {valuation.valued_positions > 0 ? fmtMoney(valuation.unrealized_total) : "—（缺少净值）"}
                   </td>
                 </tr>
               </tfoot>
@@ -453,7 +467,7 @@ export function Market() {
                         <td>{instrumentName(q.instrument_id)}<div style={{ fontSize: 11, color: "var(--color-muted-foreground)" }}>{instrumentCode(q.instrument_id)}</div></td>
                         <td className="num" style={{ fontSize: 12 }}>{q.quote_date}</td>
                         <td><span className={`badge badge--${q.data_type === "OFFICIAL" ? "green" : "blue"}`}>{DATA_TYPE_LABELS[q.data_type] ?? q.data_type}</span></td>
-                        <td className="cell--num num">{fmtAmount(q.price)}</td>
+                        <td className="cell--num num">{fmtNav(q.price)}</td>
                         <td style={{ fontSize: 12 }}>{q.provider}{q.provider_code ? ` · ${q.provider_code}` : ""}</td>
                       </tr>
                     ))}
@@ -480,8 +494,8 @@ export function Market() {
                       <tr key={n.id}>
                         <td>{instrumentName(n.instrument_id)}</td>
                         <td className="num" style={{ fontSize: 12 }}>{n.nav_date}</td>
-                        <td className="cell--num num">{fmtAmount(n.nav)}</td>
-                        <td className="cell--num num">{fmtAmount(n.accumulated_nav)}</td>
+                        <td className="cell--num num">{fmtNav(n.nav)}</td>
+                        <td className="cell--num num">{fmtNav(n.accumulated_nav)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -522,8 +536,8 @@ export function Market() {
                   {snapshots.map((s) => (
                     <tr key={s.id}>
                       <td className="num">{s.snapshot_date}</td>
-                      <td className="cell--num num">{fmtAmount(s.total_assets)}</td>
-                      <td className="cell--num num">{fmtAmount(s.market_value)}</td>
+                      <td className="cell--num num">{fmtMoney(s.total_assets)}</td>
+                      <td className="cell--num num">{fmtMoney(s.market_value)}</td>
                       <td className="cell--num num">{(Number(s.coverage) * 100).toFixed(2)}%</td>
                       <td>{DATA_QUALITY_LABELS[s.data_quality] ?? s.data_quality}</td>
                       <td className="cell--actions">
@@ -663,9 +677,9 @@ export function Market() {
                   <tr key={r.id}>
                     <td>{instrumentName(r.instrument_id)}</td>
                     <td><QuoteBadge status={r.quote_status} /></td>
-                    <td className="cell--num num">{fmtAmount(r.quantity)}</td>
-                    <td className="cell--num num">{fmtAmount(r.market_value)}</td>
-                    <td className="cell--num num">{fmtAmount(r.unrealized)}</td>
+                    <td className="cell--num num">{fmtQuantity(r.quantity)}</td>
+                    <td className="cell--num num">{fmtMoney(r.market_value)}</td>
+                    <td className="cell--num num">{fmtMoney(r.unrealized)}</td>
                   </tr>
                 ))}
               </tbody>

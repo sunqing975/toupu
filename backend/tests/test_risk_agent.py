@@ -467,6 +467,81 @@ def test_proposal_create_and_approve_only_makes_draft():
         assert created == 1  # 仅新增一笔 DRAFT 草稿
 
 
+def test_proposal_atomic_failure_and_concurrent_approval(monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+
+    from app.plans import router as plans
+
+    token, _ = _create_token(["write:proposals"])
+    acc = _account(_new_id())
+    memo = "atomic-" + _new_id()
+    created = client.post(
+        "/api/v1/agent/proposals",
+        headers={"X-Agent-Token": token},
+        json={
+            "proposal_type": "DRAFT_CASH_TRANSACTION",
+            "payload": {
+                "transaction_type": "DEPOSIT",
+                "account_id": acc,
+                "business_date": "2026-11-13",
+                "amount": "12.34",
+                "memo": memo,
+            },
+        },
+    )
+    assert created.status_code == 201, created.text
+    pid = created.json()["id"]
+    original = plans.record_audit
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("injected audit failure")
+
+    monkeypatch.setattr(plans, "record_audit", fail)
+    with TestClient(app, raise_server_exceptions=False) as failing:
+        assert failing.post(f"/api/v1/plans/proposals/{pid}/create-draft").status_code == 500
+    with SessionLocal() as db:
+        assert (
+            db.execute(
+                text("SELECT count(*) FROM investment_transactions WHERE memo=:memo"),
+                {"memo": memo},
+            ).scalar()
+            == 0
+        )
+    assert client.get(f"/api/v1/plans/proposals/{pid}").json()["status"] == "PENDING"
+    monkeypatch.setattr(plans, "record_audit", original)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        statuses = list(
+            pool.map(
+                lambda _: client.post(f"/api/v1/plans/proposals/{pid}/create-draft").status_code,
+                range(2),
+            )
+        )
+    assert sorted(statuses) == [200, 409]
+    with SessionLocal() as db:
+        assert (
+            db.execute(
+                text("SELECT count(*) FROM investment_transactions WHERE memo=:memo"),
+                {"memo": memo},
+            ).scalar()
+            == 1
+        )
+
+
+def test_saving_advice_plan_preserves_text_without_transactions():
+    advice = "## 投资建议\n保持现金储备。该建议不是实际成交。"
+    with SessionLocal() as db:
+        before = db.execute(text("SELECT count(*) FROM investment_transactions")).scalar()
+    response = client.post(
+        "/api/v1/plans", json={"name": "建议-" + _new_id(), "description": advice}
+    )
+    assert response.status_code == 201, response.text
+    plan = client.get("/api/v1/plans/" + response.json()["id"]).json()
+    assert plan["description"] == advice
+    with SessionLocal() as db:
+        assert db.execute(text("SELECT count(*) FROM investment_transactions")).scalar() == before
+    assert client.post("/api/v1/plans", json={"name": " "}).status_code == 422
+
+
 def test_proposal_invalid_payload_not_stored():
     token, _ = _create_token(["write:proposals"])
     acc = _account(_new_id())
@@ -535,7 +610,7 @@ def test_proposal_approve_twice_rejected():
     assert client.post(f"/api/v1/plans/proposals/{proposal_id}/approve").status_code == 200
     again = client.post(f"/api/v1/plans/proposals/{proposal_id}/approve")
     assert again.status_code == 409, again.text
-    assert "不能重复审批" in again.text
+    assert "不能重复生成记账草稿" in again.text
 
 
 def test_proposal_reject_is_recorded():

@@ -30,6 +30,7 @@ export interface McpTestResult {
 }
 
 export const mcpServersApi = {
+  importJson: (json_text: string) => api<McpServer[]>("/api/v1/agent/mcp-servers/import", { method: "POST", body: JSON.stringify({ json_text }) }),
   list: () => api<McpServer[]>("/api/v1/agent/mcp-servers"),
   create: (payload: McpServerIn) =>
     api<McpServer>("/api/v1/agent/mcp-servers", {

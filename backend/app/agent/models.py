@@ -65,6 +65,7 @@ class AgentDefinition(Base):
     model_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     enabled_skill_keys: Mapped[list] = mapped_column(JSONB, default=list)
     mcp_server_ids: Mapped[list] = mapped_column(JSONB, default=list)
+    skill_package_keys: Mapped[list] = mapped_column(JSONB, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

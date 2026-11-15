@@ -67,8 +67,11 @@ export interface TxnDetail extends Txn {
 const BASE = "/api/v1/transactions"
 
 export const transactionsApi = {
-  list: (params?: { status_filter?: string; account_id?: string }) => {
+  list: (params?: { status_filter?: string; account_id?: string; instrument_id?: string; investment_only?: boolean; active_only?: boolean }) => {
     const q = new URLSearchParams()
+    if (params?.instrument_id) q.set("instrument_id", params.instrument_id)
+    if (params?.active_only) q.set("active_only", "true")
+    if (params?.investment_only) q.set("investment_only", "true")
     if (params?.status_filter) q.set("status_filter", params.status_filter)
     if (params?.account_id) q.set("account_id", params.account_id)
     const qs = q.toString()

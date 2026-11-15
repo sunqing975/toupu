@@ -26,14 +26,67 @@ def _fmt(obj: Any) -> str:
 # ---- 各技能执行器（db + 已解析的参数 -> 字符串结果） ----
 
 
+def _create_account(db: Session, args: dict) -> str:
+    from sqlalchemy.exc import IntegrityError
+
+    from app.accounts.router import AccountOut
+    from app.accounts.service import AccountCreate, create_account_record, find_account
+
+    payload = AccountCreate.model_validate(args)
+    existing = find_account(db, payload.name)
+    if existing is None:
+        try:
+            account = create_account_record(db, payload, source="agent")
+            db.commit()
+            return _fmt(
+                {
+                    "ok": True,
+                    "created": True,
+                    "account": AccountOut.model_validate(account).model_dump(mode="json"),
+                    "notice": "仅创建投谱账户资料，未开户、未产生资金或持仓。",
+                }
+            )
+        except IntegrityError:
+            db.rollback()
+            existing = find_account(db, payload.name)
+            if existing is None:
+                raise
+        except Exception:
+            db.rollback()
+            raise
+    if (
+        existing.account_type != payload.account_type
+        or existing.currency != payload.currency
+        or (payload.notes is not None and existing.notes != payload.notes)
+    ):
+        return _fmt({"ok": False, "error": "同名账户资料不同，未修改，请用户核实。"})
+    return _fmt(
+        {
+            "ok": True,
+            "created": False,
+            "account": AccountOut.model_validate(existing).model_dump(mode="json"),
+            "notice": "账户已存在，未重复创建或修改。",
+        }
+    )
+
+
 def _read_accounts(db: Session, args: dict) -> str:
     data, meta = resources.accounts(db)
     return _fmt({"meta": _meta_out(meta), "accounts": data})
 
 
 def _read_positions(db: Session, args: dict) -> str:
+    from app.imports.platform_assets import latest
+
     data, meta = resources.positions(db)
-    return _fmt({"meta": _meta_out(meta), "positions": data})
+    return _fmt(
+        {
+            "meta": _meta_out(meta),
+            "positions": data,
+            "platform_observations": latest(db),
+            "notice": "平台快照未入账，不与正式持仓相加；证券账户尚未提供数据不代表零资产。",
+        }
+    )
 
 
 def _read_transactions(db: Session, args: dict) -> str:
@@ -167,7 +220,7 @@ def _draft_rebalance_plan(db: Session, args: dict) -> str:
                     "基于持仓诊断(analyze_portfolio_concentration)识别偏高集中度",
                     "基于收益归因(analyze_returns_attribution)定位拖累/贡献项",
                     "结合风险扫描(scan_risk_events)给出减仓/加仓方向",
-                    "如涉及实际交易，使用 create_draft_proposal 生成待审批草稿",
+                    "用户要求记录现金业务才用 create_draft_proposal；普通建议直接回复",
                 ],
             },
             "note": "此技能只产出计划框架，不执行任何改动账本的操作。",
@@ -176,7 +229,7 @@ def _draft_rebalance_plan(db: Session, args: dict) -> str:
 
 
 def _create_draft_proposal(db: Session, args: dict) -> str:
-    """创建待审批现金交易提案（只建 PENDING，绝不入账；审批在网页端人工确认）。"""
+    """生成现金记账建议（PENDING仅表示尚未处理；不操作账户，不生成正式交易）。"""
 
     from app.plans.proposal_service import validate_payload
     from app.risk.models import OperationProposal
@@ -204,7 +257,7 @@ def _create_draft_proposal(db: Session, args: dict) -> str:
             "proposal_id": str(proposal.id),
             "status": proposal.status,
             "impact": validated["impact"],
-            "note": "已生成待审批草稿，需用户在网页端审批后才会建账本草稿。",
+            "note": "已生成记账建议，不操作账户或改变持仓。用户可选择保存为记账草稿，也可忽略。",
         }
     )
 
@@ -256,6 +309,25 @@ _DATE_PARAM = {
 }
 
 SKILLS: dict[str, _Skill] = {
+    "create_account": _Skill(
+        "create_account",
+        "创建投谱账户",
+        "仅当用户明确要求时创建投谱账户资料，不是券商开户，不产生资金或持仓。"
+        "名称或类型不明确先询问；同名不重复创建，不自动修改已有账户。",
+        "action",
+        {
+            "name": {"type": "string", "description": "用户指定的账户名称", "required": True},
+            "account_type": {
+                "type": "string",
+                "enum": ["BROKER", "FUND_PLATFORM"],
+                "description": "券商账户或基金平台账户",
+                "required": True,
+            },
+            "currency": {"type": "string", "enum": ["CNY"]},
+            "notes": {"type": "string", "description": "用户提供的备注，不得编造"},
+        },
+        _create_account,
+    ),
     # —— 数据技能（只读）——
     "read_accounts": _Skill(
         "read_accounts", "查询账户", "读取全部投资账户列表。", "data", {}, _read_accounts
@@ -263,7 +335,7 @@ SKILLS: dict[str, _Skill] = {
     "read_positions": _Skill(
         "read_positions",
         "查询持仓",
-        "读取当前全部持仓（账户×品种聚合）。",
+        "读取正式持仓及独立的平台持仓快照；快照金额不与正式持仓重复相加。",
         "data",
         {},
         _read_positions,
@@ -305,7 +377,12 @@ SKILLS: dict[str, _Skill] = {
         "read_plans", "查询投资计划", "读取投资计划与行动项。", "data", {}, _read_plans
     ),
     "read_proposals": _Skill(
-        "read_proposals", "查询待审批提案", "读取待审批/历史提案。", "data", {}, _read_proposals
+        "read_proposals",
+        "查询记账建议",
+        "读取尚未处理及历史记账建议。",
+        "data",
+        {},
+        _read_proposals,
     ),
     # —— 投资分析技能（真实聚合）——
     "analyze_portfolio_concentration": _Skill(
@@ -346,8 +423,8 @@ SKILLS: dict[str, _Skill] = {
     ),
     "create_draft_proposal": _Skill(
         "create_draft_proposal",
-        "创建待审批提案",
-        "生成现金交易待审批草稿（PENDING，不入账）。",
+        "生成记账建议",
+        "仅在用户明确要求记录现金业务时生成记账建议（不操作账户、不入账）。普通投资分析直接回复，不调用此工具。",
         "action",
         {
             "payload": {

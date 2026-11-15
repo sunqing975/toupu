@@ -88,8 +88,8 @@ export function Plans() {
     if (!approving) return
     setBusy(true)
     try {
-      await plansApi.approveProposal(approving.id, note || null)
-      toast("success", "已批准：只生成交易草稿，请到交易页确认并过账")
+      await plansApi.createDraft(approving.id, note || null)
+      toast("success", "已保存为记账草稿；仅核实实际发生的业务后再记账，不会操作券商账户")
       setApproving(null)
       setNote("")
       loadProposals()
@@ -106,7 +106,7 @@ export function Plans() {
     setBusy(true)
     try {
       await plansApi.rejectProposal(rejecting.id, note || null)
-      toast("success", "提案已拒绝")
+      toast("success", "建议已忽略")
       setRejecting(null)
       setNote("")
       loadProposals()
@@ -186,13 +186,13 @@ export function Plans() {
     <div className="page">
       <div className="page__head">
         <p className="page__sub">
-          Agent 只能提交提案；批准只生成交易草稿（DRAFT），绝不自动入账。计划是决策记录，不触发账务。
+          AI 提供建议供你参考，无需审批。你可自行保存计划或记账草稿；系统不操作券商账户，计划与草稿不改变持仓。
         </p>
       </div>
 
       <div style={{ display: "flex", gap: "var(--space-2)", borderBottom: "1px solid var(--color-border)", marginBottom: "var(--space-4)" }}>
         <button className={`btn ${tab === "proposals" ? "btn--primary" : "btn--ghost"}`} onClick={() => setTab("proposals")}>
-          <ClipboardList size={14} aria-hidden /> 待审批提案
+          <ClipboardList size={14} aria-hidden /> 记账建议
         </button>
         <button className={`btn ${tab === "plans" ? "btn--primary" : "btn--ghost"}`} onClick={() => setTab("plans")}>
           <Target size={14} aria-hidden /> 投资计划
@@ -217,8 +217,8 @@ export function Plans() {
           ) : proposals.length === 0 ? (
             <EmptyState
               icon={<ClipboardList size={40} aria-hidden />}
-              title="没有提案"
-              description="Agent 通过 API 提交的现金类草稿提案会出现在这里，等待你审批。"
+              title="没有记账建议"
+              description="AI 生成的现金记账建议会出现在这里；可选保存为草稿或忽略，不需要审批投资建议。"
             />
           ) : (
             <table className="table">
@@ -241,7 +241,7 @@ export function Plans() {
                       {p.is_expired && p.status === "PENDING" ? (
                         <span className="badge badge--gray">已过期</span>
                       ) : (
-                        <StatusBadge status={p.status} />
+                        <span className="badge badge--gray">{PROPOSAL_STATUS_LABELS[p.status] ?? p.status}</span>
                       )}
                     </td>
                     <td className="cell--actions">
@@ -250,10 +250,10 @@ export function Plans() {
                         {p.status === "PENDING" && !p.is_expired && (
                           <>
                             <button className="btn btn--primary" onClick={() => { setApproving(p); setNote("") }}>
-                              <CheckCircle2 size={14} aria-hidden /> 批准
+                              <CheckCircle2 size={14} aria-hidden /> 保存为记账草稿
                             </button>
                             <button className="btn btn--ghost" onClick={() => { setRejecting(p); setNote("") }}>
-                              <XCircle size={14} aria-hidden /> 拒绝
+                              <XCircle size={14} aria-hidden /> 忽略
                             </button>
                           </>
                         )}
@@ -308,7 +308,7 @@ export function Plans() {
                       {p.status === "ACTIVE" ? (
                         <span className="badge badge--green">进行中</span>
                       ) : (
-                        <StatusBadge status={p.status} />
+                        <span className="badge badge--gray">{PROPOSAL_STATUS_LABELS[p.status] ?? p.status}</span>
                       )}
                     </td>
                     <td className="num">{fmtTime(p.created_at)}</td>
@@ -360,7 +360,7 @@ export function Plans() {
       </Dialog>
 
       {/* 批准 */}
-      <Dialog open={approving !== null} title="批准提案" onClose={() => setApproving(null)}>
+      <Dialog open={approving !== null} title="保存为记账草稿" onClose={() => setApproving(null)}>
         {approving && (
           <form onSubmit={(e) => { e.preventDefault(); approve() }}>
             <p>{proposalTitle(approving)}</p>
@@ -368,7 +368,7 @@ export function Plans() {
               {(approving.impact_preview as ImpactView).impact ?? "仅生成草稿，不入账"}
             </p>
             <div className="banner banner--warning" style={{ marginTop: "var(--space-3)" }}>
-              批准后只会生成一笔交易草稿（DRAFT），不会改变余额或持仓；请在交易页确认并过账。
+              仅保存一笔记账草稿，不下单、不划转资金、不改变余额或持仓。只有实际业务已发生并核实后，才在交易页确认记账。
             </div>
             <div className="field" style={{ marginTop: "var(--space-3)" }}>
               <label className="field__label" htmlFor="approve-note">备注（可选）</label>
@@ -376,24 +376,24 @@ export function Plans() {
             </div>
             <div className="dialog__foot">
               <button type="button" className="btn btn--secondary" onClick={() => setApproving(null)}>取消</button>
-              <button type="submit" className="btn btn--primary" disabled={busy}>确认批准</button>
+              <button type="submit" className="btn btn--primary" disabled={busy}>保存草稿</button>
             </div>
           </form>
         )}
       </Dialog>
 
       {/* 拒绝 */}
-      <Dialog open={rejecting !== null} title="拒绝提案" onClose={() => setRejecting(null)}>
+      <Dialog open={rejecting !== null} title="忽略建议" onClose={() => setRejecting(null)}>
         {rejecting && (
           <form onSubmit={(e) => { e.preventDefault(); reject() }}>
             <p>{proposalTitle(rejecting)}</p>
             <div className="field" style={{ marginTop: "var(--space-3)" }}>
-              <label className="field__label" htmlFor="reject-note">拒绝原因（可选）</label>
+              <label className="field__label" htmlFor="reject-note">忽略原因（可选）</label>
               <input id="reject-note" className="input" value={note} onChange={(e) => setNote(e.target.value)} />
             </div>
             <div className="dialog__foot">
               <button type="button" className="btn btn--secondary" onClick={() => setRejecting(null)}>取消</button>
-              <button type="submit" className="btn btn--destructive" disabled={busy}>确认拒绝</button>
+              <button type="submit" className="btn btn--destructive" disabled={busy}>忽略建议</button>
             </div>
           </form>
         )}

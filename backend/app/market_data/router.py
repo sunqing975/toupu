@@ -15,6 +15,8 @@ from app.audit import record_audit
 from app.core.errors import BusinessError
 from app.db.session import get_db
 from app.instruments.models import Instrument
+from app.market_data.fund_nav_source import sync_held_navs
+from app.market_data.ingestion import import_daily
 from app.market_data.models import FundNav, MarketQuote
 from app.market_data.provider import QuoteStatus
 from app.performance.service import PositionValuation, derive
@@ -24,6 +26,26 @@ router = APIRouter(prefix="/api/v1/market", tags=["market_data"])
 DataType = Literal["OFFICIAL", "ESTIMATED"]
 QualityStatus = Literal["FRESH", "STALE", "SUSPENDED", "NO_QUOTE"]
 AdjustType = Literal["NONE", "PRE", "POST"]
+
+
+@router.post("/sync-fund-navs")
+def sync_funds(db: Session = Depends(get_db)) -> dict:
+    try:
+        return sync_held_navs(db)
+    except Exception:
+        db.rollback()
+        raise
+
+
+class DailyImportIn(BaseModel):
+    instrument_id: uuid.UUID
+    start: date
+    end: date
+
+
+@router.post("/import-daily")
+def ingest_daily(payload: DailyImportIn, db: Session = Depends(get_db)) -> dict:
+    return import_daily(db, _get_instrument(db, payload.instrument_id), payload.start, payload.end)
 
 
 class QuoteIn(BaseModel):

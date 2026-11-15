@@ -8,19 +8,14 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.accounts.models import InvestmentAccount
+from app.accounts.service import AccountCreate as AccountIn
+from app.accounts.service import create_account_record
 from app.db.session import get_db
 
 router = APIRouter(prefix="/api/v1/accounts", tags=["accounts"])
 
 AccountType = Literal["BROKER", "FUND_PLATFORM"]
 AccountStatus = Literal["ACTIVE", "FROZEN", "CLOSED"]
-
-
-class AccountIn(BaseModel):
-    name: str
-    account_type: AccountType
-    currency: str = "CNY"
-    notes: str | None = None
 
 
 class AccountPatch(BaseModel):
@@ -42,9 +37,8 @@ class AccountOut(BaseModel):
 
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=AccountOut)
 def create_account(payload: AccountIn, db: Session = Depends(get_db)) -> InvestmentAccount:
-    account = InvestmentAccount(**payload.model_dump())
-    db.add(account)
     try:
+        account = create_account_record(db, payload, source="manual")
         db.commit()
     except IntegrityError:
         db.rollback()

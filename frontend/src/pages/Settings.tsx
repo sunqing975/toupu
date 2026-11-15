@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react"
-import { Copy, Cpu, KeyRound, Plug, Plus, Server, Trash2 } from "lucide-react"
+import { Blocks, Copy, Cpu, KeyRound, Plug, Plus, Server, Trash2 } from "lucide-react"
+import { Link, useSearchParams } from "react-router-dom"
+import { Skills } from "./Skills"
 import {
   ALL_SCOPES,
   SCOPE_LABELS,
@@ -41,18 +43,28 @@ const EMPTY_MODEL: ModelForm = {
   is_default: false,
 }
 
-type SettingsTab = "models" | "tokens" | "mcp"
+type SettingsTab = "models" | "tokens" | "mcp" | "skills"
 
 const TABS: { key: SettingsTab; label: string; icon: typeof Cpu }[] = [
   { key: "models", label: "模型配置", icon: Cpu },
   { key: "tokens", label: "访问凭证", icon: KeyRound },
   { key: "mcp", label: "外部 MCP", icon: Plug },
+  { key: "skills", label: "技能", icon: Blocks },
 ]
 
 export function Settings() {
   const toast = useToast()
   // 用户反馈 (m05823)：三块内容垂直堆叠太长 → 改水平 Tabs，一次只显示一块。
-  const [tab, setTab] = useState<SettingsTab>("models")
+  const [searchParams, setSearchParams] = useSearchParams()
+  const requestedTab = searchParams.get("tab")
+  const tab = TABS.find(item => item.key === requestedTab)?.key ?? "models"
+  const setTab = (key: SettingsTab) => {
+    setSearchParams(previous => {
+      const next = new URLSearchParams(previous)
+      next.set("tab", key)
+      return next
+    })
+  }
 
   // —— 对外 MCP 访问凭证（原「Agent Token」，语义：别人连本系统 /mcp 时用的 key）——
   const [tokens, setTokens] = useState<AgentToken[] | null>(null)
@@ -68,6 +80,7 @@ export function Settings() {
   const [serverError, setServerError] = useState<string | null>(null)
   const [serverDialogOpen, setServerDialogOpen] = useState(false)
   const [serverBusy, setServerBusy] = useState(false)
+  const [importJson, setImportJson] = useState("")
   const [editing, setEditing] = useState<McpServer | null>(null)
   const [srvForm, setSrvForm] = useState<McpServerIn>({
     name: "",
@@ -301,9 +314,11 @@ export function Settings() {
       <div className="page__head">
         <div>
           <h2 className="page__title">设置</h2>
-          <p className="page__sub">模型配置、对外 MCP 访问凭证、以及挂载到本系统的外部 MCP 服务。</p>
+          <p className="page__sub">统一管理模型配置、访问凭证、外部 MCP 与技能。</p>
         </div>
       </div>
+
+      <details style={{ marginBottom: "var(--space-4)" }}><summary>高级 · 数据核对</summary><p className="muted">仅用于排查金额差异，日常无需操作；交易和持仓由程序自动记账。</p><Link to="/settings/reconciliation">查看后台账务明细</Link></details>
 
       {/* 水平 Tabs：一次只渲染一块，避免页面被拉得很长 */}
       <div className="tabs" role="tablist">
@@ -319,6 +334,8 @@ export function Settings() {
           </button>
         ))}
       </div>
+
+      {tab === "skills" && <Skills />}
 
       {/* —— 1. 模型配置 —— */}
       {tab === "models" && (
@@ -472,6 +489,15 @@ export function Settings() {
           </button>
         </div>
 
+        <details className="card__body"><summary>粘贴 JSON 导入 MCP 服务</summary>
+          <p>支持 mcpServers 格式。整批校验后保存，默认停用；请核对地址或本机命令后再启用、绑定 Agent。</p>
+          <textarea className="input" rows={8} aria-label="MCP JSON 配置" value={importJson} onChange={e => setImportJson(e.target.value)} placeholder={'{"mcpServers":{"knowledge":{"url":"http://localhost:8080/mcp"}}}'} />
+          <button className="btn btn--primary" disabled={serverBusy || !importJson.trim()} onClick={async () => {
+            setServerBusy(true); setServerError(null)
+            try { await mcpServersApi.importJson(importJson); setServers(await mcpServersApi.list()); setImportJson(""); toast("success", "已导入，默认停用，请核对配置") }
+            catch(e) { setServerError(String(e)) } finally { setServerBusy(false) }
+          }}>校验并导入</button>
+        </details>
         {serverError && <div className="alert alert--error">{serverError}</div>}
 
         {servers === null ? (

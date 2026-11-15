@@ -110,9 +110,9 @@ export const EVENT_STATUS_LABELS: Record<string, string> = {
 }
 
 export const PROPOSAL_STATUS_LABELS: Record<string, string> = {
-  PENDING: "待审批",
-  APPROVED: "已批准",
-  REJECTED: "已拒绝",
+  PENDING: "未处理",
+  APPROVED: "已生成草稿",
+  REJECTED: "已忽略",
   EXPIRED: "已过期",
 }
 
@@ -161,8 +161,8 @@ export const plansApi = {
     const qs = status ? `?status_filter=${status}` : ""
     return api<Proposal[]>(`/api/v1/plans/proposals${qs}`)
   },
-  approveProposal: (id: string, note: string | null) =>
-    api<Proposal>(`/api/v1/plans/proposals/${id}/approve`, {
+  createDraft: (id: string, note: string | null) =>
+    api<Proposal>(`/api/v1/plans/proposals/${id}/create-draft`, {
       method: "POST",
       body: JSON.stringify({ note }),
     }),

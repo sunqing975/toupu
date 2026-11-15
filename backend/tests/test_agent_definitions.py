@@ -30,7 +30,7 @@ def _create_model():
         },
     )
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return _chat_body(resp)
 
 
 def test_builtin_agent_and_skills_seeded():
@@ -38,7 +38,9 @@ def test_builtin_agent_and_skills_seeded():
     keys = {a["key"] for a in listing}
     assert "toupu-assistant" in keys
     builtin = next(a for a in listing if a["key"] == "toupu-assistant")
-    assert set(builtin["enabled_skill_keys"]) == set(skills_mod.SKILLS.keys())
+    assert set(builtin["enabled_skill_keys"]) == {
+        k for k, s in skills_mod.SKILLS.items() if s.category != "analysis"
+    }
 
     skills = client.get("/api/v1/agent/definitions/skills").json()
     assert skills
@@ -60,7 +62,7 @@ def test_agent_create_list_get_update_delete():
         },
     )
     assert resp.status_code == 201, resp.text
-    aid = resp.json()["id"]
+    aid = _chat_body(resp)["id"]
 
     got = client.get(f"/api/v1/agent/definitions/{aid}").json()
     assert got["name"] == "我的分析助手"
@@ -153,20 +155,29 @@ def test_chat_uses_tool_loop_with_mock_model():
     captured: dict = {}
 
     def fake_chat_with_tools(
-        db, messages, tool_schemas, tool_executor, *, model_id=None, temperature=0.3, max_rounds=6
+        db,
+        messages,
+        tool_schemas,
+        tool_executor,
+        *,
+        model_id=None,
+        temperature=0.3,
+        max_rounds=6,
+        **kwargs,
     ):
         captured["tool_schemas"] = tool_schemas
         # 模拟模型在循环里调用一个只读技能：执行器应委托给 skills.execute_skill
-        captured["tool_result"] = tool_executor("read_summary", "{}")
-        return "根据概览，总资产约为示例值。"
+        captured["tool_result"] = tool_executor("read_summary", "{}", "test-call")
+        yield {"type": "content", "text": "根据概览，总资产约为示例值。"}
+        yield {"type": "complete"}
 
-    with patch("app.agent.llm.chat_with_tools", side_effect=fake_chat_with_tools):
+    with patch("app.agent.chat_router.stream_with_tools", side_effect=fake_chat_with_tools):
         resp = client.post(
             "/api/v1/agent/chat",
             json={"question": "总资产多少？"},
         )
     assert resp.status_code == 200, resp.text
-    body = resp.json()
+    body = _chat_body(resp)
     assert body["answer"] == "根据概览，总资产约为示例值。"
     assert body["agent_name"]
     assert any(
@@ -180,3 +191,16 @@ def test_chat_requires_model():
     with patch("app.agent.chat_router._resolve_model", return_value=None):
         resp = client.post("/api/v1/agent/chat", json={"question": "你好"})
     assert resp.status_code == 400
+
+
+def _chat_body(response):
+    if "text/event-stream" not in response.headers.get("content-type", ""):
+        return response.json()
+    events = [
+        json.loads(line[6:]) for line in response.text.splitlines() if line.startswith("data: ")
+    ]
+    assert not any(e["type"] == "error" for e in events), events
+    return {
+        **next(e for e in events if e["type"] == "meta"),
+        "answer": "".join(e.get("text", "") for e in events if e["type"] == "content"),
+    }

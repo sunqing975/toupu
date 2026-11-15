@@ -1,49 +1,33 @@
 import { Navigate, NavLink, Outlet, Route, Routes, useLocation } from "react-router-dom"
 import {
   ArrowLeftRight,
-  BookText,
-  Blocks,
   Bot,
-  ChartPie,
-  Landmark,
   LayoutDashboard,
   LineChart,
   Settings as SettingsIcon,
   ShieldAlert,
   Tags,
-  Target,
-  Upload,
   Wallet,
 } from "lucide-react"
 import { APP_VERSION } from "./version"
 import { Dashboard } from "./pages/Dashboard"
 import { Accounts } from "./pages/Accounts"
 import { Instruments } from "./pages/Instruments"
-import { Transactions } from "./pages/Transactions"
-import { Positions } from "./pages/Positions"
-import { Funds } from "./pages/Funds"
+import { TransactionWorkspace } from "./pages/TransactionWorkspace"
 import { Imports } from "./pages/Imports"
 import { Market } from "./pages/Market"
 import { Risk } from "./pages/Risk"
-import { Plans } from "./pages/Plans"
 import { Ledger } from "./pages/Ledger"
 import { Settings } from "./pages/Settings"
 import { Agent } from "./pages/Agent"
-import { Skills } from "./pages/Skills"
 
 
 const NAV = [
   { to: "/agent", label: "助手", icon: Bot, title: "投资助手" },
-  { to: "/skills", label: "技能", icon: Blocks, title: "技能管理" },
   { to: "/", label: "总览", icon: LayoutDashboard, title: "总览" },
-  { to: "/positions", label: "持仓", icon: ChartPie, title: "持仓" },
-  { to: "/transactions", label: "交易", icon: ArrowLeftRight, title: "交易" },
-  { to: "/funds", label: "基金", icon: Landmark, title: "场外基金" },
+  { to: "/transactions", label: "交易记录", icon: ArrowLeftRight, title: "交易记录" },
   { to: "/market", label: "行情", icon: LineChart, title: "行情与收益" },
   { to: "/risk", label: "风险", icon: ShieldAlert, title: "风险" },
-  { to: "/plans", label: "计划", icon: Target, title: "计划与提案" },
-  { to: "/ledger", label: "账本", icon: BookText, title: "账本" },
-  { to: "/imports", label: "导入", icon: Upload, title: "导入" },
   { to: "/accounts", label: "账户", icon: Wallet, title: "账户" },
   { to: "/instruments", label: "投资品种", icon: Tags, title: "投资品种" },
   { to: "/settings", label: "设置", icon: SettingsIcon, title: "设置" },
@@ -87,19 +71,20 @@ export default function App() {
     <Routes>
       <Route element={<Shell />}>
         <Route path="/" element={<Dashboard />} />
-        <Route path="/positions" element={<Positions />} />
-        <Route path="/transactions" element={<Transactions />} />
-        <Route path="/funds" element={<Funds />} />
+        <Route path="/positions" element={<Navigate to="/" replace />} />
+        <Route path="/transactions" element={<TransactionWorkspace />} />
+        <Route path="/funds" element={<Navigate to="/transactions?type=fund" replace />} />
         <Route path="/market" element={<Market />} />
         <Route path="/risk" element={<Risk />} />
-        <Route path="/plans" element={<Plans />} />
-        <Route path="/ledger" element={<Ledger />} />
+        <Route path="/plans" element={<Navigate to="/agent" replace />} />
+        <Route path="/ledger" element={<Navigate to="/settings/reconciliation" replace />} />
+        <Route path="/settings/reconciliation" element={<Ledger />} />
         <Route path="/imports" element={<Imports />} />
         <Route path="/accounts" element={<Accounts />} />
         <Route path="/instruments" element={<Instruments />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/agent" element={<Agent />} />
-        <Route path="/skills" element={<Skills />} />
+        <Route path="/skills" element={<Navigate to="/settings?tab=skills" replace />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

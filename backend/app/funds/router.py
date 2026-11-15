@@ -82,6 +82,7 @@ class FundOrderOut(BaseModel):
     status: str
     confirmation_status: str | None
     business_date: date
+    confirmation_date: date | None = None
     currency: str
     total_amount: Decimal | None
     memo: str | None
@@ -209,12 +210,15 @@ def create_order(payload: FundOrderIn, db: Session = Depends(get_db)) -> FundOrd
 def list_orders(
     account_id: uuid.UUID | None = None,
     transaction_type: FundTxnType | None = None,
+    instrument_id: uuid.UUID | None = None,
     status_filter: str | None = None,
+    active_only: bool = False,
     db: Session = Depends(get_db),
 ) -> list[FundOrderOut]:
     query = (
-        select(InvestmentTransaction, FundOrderDetail)
+        select(InvestmentTransaction, FundOrderDetail, FundConfirmation)
         .join(FundOrderDetail, FundOrderDetail.transaction_id == InvestmentTransaction.id)
+        .outerjoin(FundConfirmation, FundConfirmation.transaction_id == InvestmentTransaction.id)
         .where(InvestmentTransaction.transaction_type.in_(list(get_args(FundTxnType))))
         .order_by(
             InvestmentTransaction.business_date.desc(),
@@ -223,8 +227,16 @@ def list_orders(
     )
     if account_id:
         query = query.where(InvestmentTransaction.account_id == account_id)
+    if instrument_id:
+        query = query.where(InvestmentTransaction.instrument_id == instrument_id)
     if transaction_type:
         query = query.where(InvestmentTransaction.transaction_type == transaction_type)
+    if active_only:
+        query = query.where(InvestmentTransaction.status.notin_(["CANCELLED", "REVERSED"]))
+        query = query.where(
+            (InvestmentTransaction.confirmation_status.is_(None))
+            | (InvestmentTransaction.confirmation_status != "FAILED")
+        )
     if status_filter:
         query = query.where(InvestmentTransaction.status == status_filter)
     rows = db.execute(query.limit(100)).all()
@@ -237,6 +249,7 @@ def list_orders(
             status=txn.status,
             confirmation_status=txn.confirmation_status,
             business_date=txn.business_date,
+            confirmation_date=conf.confirmation_date if conf else None,
             currency=txn.currency,
             total_amount=txn.total_amount,
             memo=txn.memo,
@@ -245,7 +258,7 @@ def list_orders(
             apply_shares=order.apply_shares,
             expected_fee=order.expected_fee,
         )
-        for txn, order in rows
+        for txn, order, conf in rows
     ]
 
 
